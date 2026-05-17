@@ -1,0 +1,28 @@
+{
+  "name": "wealthtrack",
+  "version": "0.1.0",
+  "private": true,
+  "devDependencies": {
+    "concurrently": "^9.2.1",
+    "tsx": "^4.19.2"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "concurrently -n api,worker,dashboard -c blue,yellow,green \"npm run dev:api\" \"npm run dev:worker\" \"npm run dev:dashboard\"",
+    "dev:api": "npm run dev --workspace @wealthtrack/api",
+    "dev:worker": "npm run dev --workspace @wealthtrack/worker",
+    "dev:dashboard": "npm run dev --workspace @wealthtrack/dashboard",
+    "docker:up": "docker compose -f infra/docker/docker-compose.local.yml up -d",
+    "docker:down": "docker compose -f infra/docker/docker-compose.local.yml down -v",
+    "docker:logs": "docker compose -f infra/docker/docker-compose.local.yml logs -f mysql redis",
+    "db:migrate": "sh infra/mysql/apply-migrations.sh",
+    "db:reset": "docker compose -f infra/docker/docker-compose.local.yml down -v && docker compose -f infra/docker/docker-compose.local.yml up -d mysql redis",
+    "test:integration": "tsx --test apps/api/test/mysql-repositories.integration.spec.ts && npm run api:build && npm run worker:build && tsx --test apps/api/test/api-workflows.integration.spec.js",
+    "api:build": "npm run build --workspace @wealthtrack/api",
+    "worker:build": "npm run build --workspace @wealthtrack/worker",
+    "dashboard:build": "npm run build --workspace @wealthtrack/dashboard"
+  }
+}

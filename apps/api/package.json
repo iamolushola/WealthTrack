@@ -1,0 +1,33 @@
+{
+  "name": "@wealthtrack/api",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "dev": "npm run build && concurrently -k -n build,api -c cyan,green \"npm run dev:build\" \"npm run dev:start\"",
+    "dev:build": "tsc -w -p tsconfig.build.json --preserveWatchOutput",
+    "dev:start": "tsx watch dist/apps/api/src/main.js",
+    "start": "tsx dist/apps/api/src/main.js",
+    "start:dev": "npm run dev"
+  },
+  "dependencies": {
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "bullmq": "^5.16.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "ioredis": "^5.4.1",
+    "mysql2": "^3.11.3",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.1",
+    "@nestjs/cli": "^11.0.0",
+    "@nestjs/schematics": "^11.0.0",
+    "@nestjs/testing": "^11.0.0",
+    "concurrently": "^9.2.1",
+    "typescript": "^5.6.3"
+  }
+}

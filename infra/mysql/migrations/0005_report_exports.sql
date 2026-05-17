@@ -1,0 +1,21 @@
+CREATE TABLE report_exports (
+    id CHAR(36) NOT NULL,
+    report_type ENUM('summary', 'trends', 'customer_portfolio', 'wealth_manager', 'upload_error', 'audit') NOT NULL,
+    output_format ENUM('csv', 'xlsx', 'pdf') NOT NULL,
+    requested_by CHAR(36) NOT NULL,
+    filters_json JSON NULL,
+    status ENUM('pending', 'processing', 'completed', 'failed') NOT NULL DEFAULT 'pending',
+    file_url TEXT NULL,
+    file_size_bytes BIGINT NULL,
+    checksum CHAR(64) NULL,
+    error_message TEXT NULL,
+    request_id VARCHAR(100) NULL,
+    correlation_id VARCHAR(100) NULL,
+    expires_at DATETIME(3) NULL,
+    created_at DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+    completed_at DATETIME(3) NULL,
+    PRIMARY KEY (id),
+    KEY idx_report_exports_requested_by_created_at (requested_by, created_at),
+    KEY idx_report_exports_status_created_at (status, created_at),
+    CONSTRAINT fk_report_exports_requested_by FOREIGN KEY (requested_by) REFERENCES users (id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
