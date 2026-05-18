@@ -11,7 +11,7 @@ permissions:
 
 env:
   REGISTRY: ghcr.io
-  IMAGE_OWNER: olusholaas
+  IMAGE_OWNER: iamolushola
   IMAGE_TAG: staging
 
 jobs:
