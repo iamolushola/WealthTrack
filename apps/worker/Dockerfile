@@ -22,6 +22,6 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/dist ./dist
+COPY --from=build /app/apps/worker/dist ./dist
 
 CMD ["node", "dist/main.js"]
