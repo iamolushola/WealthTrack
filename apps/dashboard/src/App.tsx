@@ -433,7 +433,9 @@ type IconName =
   | 'refresh'
   | 'clock'
   | 'launch'
-  | 'mail';
+  | 'mail'
+  | 'sun'
+  | 'moon';
 
 const rangeOptions: RangeOption[] = ['7D', '30D', 'Quarter', 'YTD'];
 
@@ -800,6 +802,8 @@ function Icon({ name }: { name: IconName }) {
     clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v6l4 2" /></>,
     launch: <><path d="M14 5h5v5" /><path d="M10 14 19 5" /><path d="M19 14v5h-14v-14h5" /></>,
     mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></>,
+    sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></>,
+    moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
   };
 
   return <svg {...common} aria-hidden="true">{paths[name]}</svg>;
@@ -1026,6 +1030,11 @@ function App() {
     System: false,
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    const saved = localStorage.getItem('wt-theme');
+    if (saved) return saved === 'dark';
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  });
   const [selectedUploadName, setSelectedUploadName] = useState('');
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0);
   const [isLoadingMoreInvestments, setIsLoadingMoreInvestments] = useState(false);
@@ -1129,6 +1138,10 @@ function App() {
 
     return response.json() as Promise<T>;
   }
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
+  }, [isDark]);
 
   useEffect(() => {
     let cancelled = false;
@@ -2242,6 +2255,15 @@ function App() {
     setSidebarCollapsed((current) => !current);
   }
 
+  function toggleTheme(): void {
+    setIsDark((current) => {
+      const next = !current;
+      document.documentElement.setAttribute('data-theme', next ? 'dark' : 'light');
+      localStorage.setItem('wt-theme', next ? 'dark' : 'light');
+      return next;
+    });
+  }
+
   function reloadReportsOverview(): void {
     setReportsRefreshKey((current) => current + 1);
   }
@@ -3330,6 +3352,9 @@ function App() {
             <button className="icon-button" type="button" aria-label="Search notifications">
               <Icon name="search" />
             </button>
+            <button className="icon-button" type="button" aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} onClick={toggleTheme}>
+              <Icon name={isDark ? 'sun' : 'moon'} />
+            </button>
             <button className="icon-button" type="button" aria-label="Open notifications">
               <Icon name="bell" />
             </button>
@@ -3381,6 +3406,7 @@ function App() {
                     </div>
                   </div>
 
+                  {currentView !== 'integrations' && currentView !== 'users' ? (
                   <div className="toolbar-filter-block">
                     <span className="toolbar-label">Window</span>
                     <div className="range-toggle" role="tablist" aria-label="Select reporting window">
@@ -3391,6 +3417,7 @@ function App() {
                       ))}
                     </div>
                   </div>
+                  ) : null}
 
                   <div className="toolbar-summary-block">
                     <span className="toolbar-label">Visible rows</span>

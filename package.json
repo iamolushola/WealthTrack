@@ -23,6 +23,7 @@
     "test:integration": "tsx --test apps/api/test/mysql-repositories.integration.spec.ts && npm run api:build && npm run worker:build && tsx --test apps/api/test/api-workflows.integration.spec.js",
     "api:build": "npm run build --workspace @wealthtrack/api",
     "worker:build": "npm run build --workspace @wealthtrack/worker",
-    "dashboard:build": "npm run build --workspace @wealthtrack/dashboard"
+    "dashboard:build": "npm run build --workspace @wealthtrack/dashboard",
+    "save": "git add -A && git commit -m \"wip: checkpoint $(date '+%Y-%m-%d %H:%M')\" || echo 'Nothing to commit'"
   }
 }
