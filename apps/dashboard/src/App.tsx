@@ -1033,7 +1033,11 @@ function App() {
     System: false,
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [trendsPeriod, setTrendsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [aumPeriod, setAumPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [ntbPeriod, setNtbPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [returningPeriod, setReturningPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
+  const [trendsFrom, setTrendsFrom] = useState('');
+  const [trendsTo, setTrendsTo] = useState('');
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('wt-theme');
     if (saved) return saved === 'dark';
@@ -1299,14 +1303,19 @@ function App() {
   }, [currentView]);
 
   useEffect(() => {
-    if (currentView !== 'trends' || trendsOverview.status !== 'idle') {
+    if (currentView !== 'trends') {
       return undefined;
     }
 
     let cancelled = false;
     setTrendsOverview({ status: 'loading', data: null, error: null });
 
-    void fetchViewData<TrendsOverview>('dashboard/trends')
+    const params = new URLSearchParams();
+    if (trendsFrom) params.set('from', trendsFrom);
+    if (trendsTo) params.set('to', trendsTo);
+    const qs = params.toString();
+
+    void fetchViewData<TrendsOverview>(`dashboard/trends${qs ? `?${qs}` : ''}`)
       .then((data) => {
         if (!cancelled) {
           setTrendsOverview({ status: 'ready', data, error: null });
@@ -1326,7 +1335,7 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
+  }, [currentView, trendsFrom, trendsTo]);
 
   useEffect(() => {
     if (currentView !== 'portfolio' || portfolioOverview.status !== 'idle') {
@@ -3124,10 +3133,10 @@ function App() {
       );
     }
 
+    type TrendPeriod = 'daily' | 'weekly' | 'monthly';
+
     function formatTrendPeriod(period: string): string {
-      if (period.includes('-W')) {
-        return period.split('-')[1];
-      }
+      if (period.includes('-W')) return period.split('-')[1];
       if (period.length === 7) {
         const d = new Date(`${period}-01T00:00:00`);
         return d.toLocaleDateString('en', { month: 'short', year: '2-digit' });
@@ -3139,32 +3148,12 @@ function App() {
       return period;
     }
 
-    const series = trendsData?.[trendsPeriod] ?? [];
-    const breakdown = trendsData?.trendBreakdown[trendsPeriod] ?? [];
-
-    const seriesChartData = series.map((p) => ({
-      label: formatTrendPeriod(p.period),
-      count: p.investmentCount,
-      volume: p.totalInvestment,
-    }));
-
-    const breakdownChartData = breakdown.map((p) => ({
-      label: formatTrendPeriod(p.period),
-      ntbCount: p.newCustomerCount,
-      ntbVolume: p.newCustomerInvestment,
-      returnCount: p.returningCustomerCount,
-      returnVolume: p.returningCustomerInvestment,
-    }));
-
-    const totalAUMCount = series.reduce((s, p) => s + p.investmentCount, 0);
-    const totalAUMVolume = series.reduce((s, p) => s + p.totalInvestment, 0);
-    const peakNTBCount = breakdown.length > 0 ? Math.max(...breakdown.map((p) => p.newCustomerCount)) : 0;
-    const totalNTBVolume = breakdown.reduce((s, p) => s + p.newCustomerInvestment, 0);
-    const peakReturnCount = breakdown.length > 0 ? Math.max(...breakdown.map((p) => p.returningCustomerCount)) : 0;
-    const totalReturnVolume = breakdown.reduce((s, p) => s + p.returningCustomerInvestment, 0);
+    function periodLabel(p: TrendPeriod): string {
+      return p === 'daily' ? 'Daily' : p === 'weekly' ? 'Weekly' : 'Monthly';
+    }
 
     const gridStroke = 'rgba(20, 41, 37, 0.06)';
-    const CHART_H = 200;
+    const CHART_H = 210;
 
     function chartGrad(id: string, color: string): ReactNode {
       return (
@@ -3199,138 +3188,240 @@ function App() {
       );
     }
 
+    function PeriodToggle({ value, onChange }: { value: TrendPeriod; onChange: (p: TrendPeriod) => void }): ReactNode {
+      return (
+        <div className="range-toggle trends-group-period" role="tablist" aria-label="Chart resolution">
+          {(['daily', 'weekly', 'monthly'] as TrendPeriod[]).map((p) => (
+            <button key={p} type="button" className={p === value ? 'range-option range-option-active' : 'range-option'} onClick={() => onChange(p)}>
+              {periodLabel(p)}
+            </button>
+          ))}
+        </div>
+      );
+    }
+
+    // — AUM group —
+    const aumSeries = trendsData?.[aumPeriod] ?? [];
+    const aumChartData = aumSeries.map((p) => ({
+      label: formatTrendPeriod(p.period),
+      count: p.investmentCount,
+      volume: p.totalInvestment,
+    }));
+    const totalAUMVolume = aumSeries.reduce((s, p) => s + p.totalInvestment, 0);
+    const totalAUMCount = aumSeries.reduce((s, p) => s + p.investmentCount, 0);
+
+    // — NTB group —
+    const ntbBreakdown = trendsData?.trendBreakdown[ntbPeriod] ?? [];
+    const ntbChartData = ntbBreakdown.map((p) => ({
+      label: formatTrendPeriod(p.period),
+      volume: p.newCustomerInvestment,
+      count: p.newCustomerCount,
+    }));
+    const totalNTBVolume = ntbBreakdown.reduce((s, p) => s + p.newCustomerInvestment, 0);
+    const peakNTBCount = ntbBreakdown.length > 0 ? Math.max(...ntbBreakdown.map((p) => p.newCustomerCount)) : 0;
+
+    // — Returning group —
+    const retBreakdown = trendsData?.trendBreakdown[returningPeriod] ?? [];
+    const retChartData = retBreakdown.map((p) => ({
+      label: formatTrendPeriod(p.period),
+      volume: p.returningCustomerInvestment,
+      count: p.returningCustomerCount,
+    }));
+    const totalReturnVolume = retBreakdown.reduce((s, p) => s + p.returningCustomerInvestment, 0);
+    const peakReturnCount = retBreakdown.length > 0 ? Math.max(...retBreakdown.map((p) => p.returningCustomerCount)) : 0;
+
+    const isFiltered = !!(trendsFrom || trendsTo);
+
     return (
       <div className="trends-charts-page">
-        <section className="panel trends-period-toolbar">
-          <span className="trends-period-label">Resolution</span>
-          <div className="range-toggle" role="tablist" aria-label="Chart resolution">
-            {(['daily', 'weekly', 'monthly'] as const).map((p) => (
-              <button
-                key={p}
-                type="button"
-                className={p === trendsPeriod ? 'range-option range-option-active' : 'range-option'}
-                onClick={() => setTrendsPeriod(p)}
-              >
-                {p.charAt(0).toUpperCase() + p.slice(1)}
-              </button>
-            ))}
+        <section className="panel trends-toolbar">
+          <div className="trends-toolbar-left">
+            <span className="trends-period-label">Date range</span>
+            <div className="date-range-group">
+              <input
+                type="date"
+                className="date-range-input"
+                aria-label="From date"
+                value={trendsFrom}
+                max={trendsTo || undefined}
+                onChange={(e) => setTrendsFrom(e.target.value)}
+              />
+              <span className="trends-date-sep">→</span>
+              <input
+                type="date"
+                className="date-range-input"
+                aria-label="To date"
+                value={trendsTo}
+                min={trendsFrom || undefined}
+                onChange={(e) => setTrendsTo(e.target.value)}
+              />
+              {isFiltered ? (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => { setTrendsFrom(''); setTrendsTo(''); }}
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+          <div className="trends-toolbar-right">
+            {trendsOverview.status === 'loading' ? (
+              <span className="pill pill-neutral">Refreshing…</span>
+            ) : isFiltered ? (
+              <span className="pill pill-good">Filtered view</span>
+            ) : (
+              <span className="pill pill-neutral">All-time</span>
+            )}
           </div>
         </section>
 
-        <div className="trends-chart-grid">
-          <article className="panel trends-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">AUM</p>
-                <h3>Investment count</h3>
+        <div className="trends-group">
+          <div className="panel trends-group-header">
+            <div>
+              <p className="eyebrow">AUM</p>
+              <h3>Assets under management</h3>
+            </div>
+            <PeriodToggle value={aumPeriod} onChange={setAumPeriod} />
+          </div>
+          <div className="trends-chart-grid">
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div>
+                  <p className="eyebrow">Volume</p>
+                  <h3>Investment volume</h3>
+                </div>
+                <strong className="trends-kpi">{formatCurrency(totalAUMVolume)}</strong>
               </div>
-              <strong className="trends-kpi">{formatCount(totalAUMCount)}</strong>
-            </div>
-            <div className="trends-chart-canvas">
-              <ResponsiveContainer width="100%" height={CHART_H}>
-                <AreaChart data={seriesChartData}>
-                  {chartGrad('aumCountFill', chartToneColors.brand)}
-                  {countAxes()}
-                  <Area type="monotone" dataKey="count" name="Count" stroke={chartToneColors.brand} fill="url(#aumCountFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={CHART_H}>
+                  <AreaChart data={aumChartData}>
+                    {chartGrad('aumVolumeFill', chartToneColors.brand)}
+                    {volumeAxes()}
+                    <Area type="monotone" dataKey="volume" name="Volume" stroke={chartToneColors.brand} fill="url(#aumVolumeFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
 
-          <article className="panel trends-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">AUM</p>
-                <h3>Investment volume</h3>
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div>
+                  <p className="eyebrow">Count</p>
+                  <h3>Investment count</h3>
+                </div>
+                <strong className="trends-kpi">{formatCount(totalAUMCount)}</strong>
               </div>
-              <strong className="trends-kpi">{formatCurrency(totalAUMVolume)}</strong>
-            </div>
-            <div className="trends-chart-canvas">
-              <ResponsiveContainer width="100%" height={CHART_H}>
-                <AreaChart data={seriesChartData}>
-                  {chartGrad('aumVolumeFill', chartToneColors.brand)}
-                  {volumeAxes()}
-                  <Area type="monotone" dataKey="volume" name="Volume" stroke={chartToneColors.brand} fill="url(#aumVolumeFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={CHART_H}>
+                  <AreaChart data={aumChartData}>
+                    {chartGrad('aumCountFill', chartToneColors.brand)}
+                    {countAxes()}
+                    <Area type="monotone" dataKey="count" name="Count" stroke={chartToneColors.brand} fill="url(#aumCountFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+          </div>
+        </div>
 
-          <article className="panel trends-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">NTB</p>
-                <h3>New customer count</h3>
+        <div className="trends-group">
+          <div className="panel trends-group-header">
+            <div>
+              <p className="eyebrow">NTB</p>
+              <h3>New-to-Bank customers</h3>
+            </div>
+            <PeriodToggle value={ntbPeriod} onChange={setNtbPeriod} />
+          </div>
+          <div className="trends-chart-grid">
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div>
+                  <p className="eyebrow">Volume</p>
+                  <h3>New customer volume</h3>
+                </div>
+                <strong className="trends-kpi">{formatCurrency(totalNTBVolume)}</strong>
               </div>
-              <strong className="trends-kpi">{formatCount(peakNTBCount)} peak</strong>
-            </div>
-            <div className="trends-chart-canvas">
-              <ResponsiveContainer width="100%" height={CHART_H}>
-                <AreaChart data={breakdownChartData}>
-                  {chartGrad('ntbCountFill', chartToneColors.good)}
-                  {countAxes()}
-                  <Area type="monotone" dataKey="ntbCount" name="NTB count" stroke={chartToneColors.good} fill="url(#ntbCountFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={CHART_H}>
+                  <AreaChart data={ntbChartData}>
+                    {chartGrad('ntbVolumeFill', chartToneColors.good)}
+                    {volumeAxes()}
+                    <Area type="monotone" dataKey="volume" name="NTB volume" stroke={chartToneColors.good} fill="url(#ntbVolumeFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
 
-          <article className="panel trends-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">NTB</p>
-                <h3>New customer volume</h3>
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div>
+                  <p className="eyebrow">Count</p>
+                  <h3>New customer count</h3>
+                </div>
+                <strong className="trends-kpi">{formatCount(peakNTBCount)} peak</strong>
               </div>
-              <strong className="trends-kpi">{formatCurrency(totalNTBVolume)}</strong>
-            </div>
-            <div className="trends-chart-canvas">
-              <ResponsiveContainer width="100%" height={CHART_H}>
-                <AreaChart data={breakdownChartData}>
-                  {chartGrad('ntbVolumeFill', chartToneColors.good)}
-                  {volumeAxes()}
-                  <Area type="monotone" dataKey="ntbVolume" name="NTB volume" stroke={chartToneColors.good} fill="url(#ntbVolumeFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={CHART_H}>
+                  <AreaChart data={ntbChartData}>
+                    {chartGrad('ntbCountFill', chartToneColors.good)}
+                    {countAxes()}
+                    <Area type="monotone" dataKey="count" name="NTB count" stroke={chartToneColors.good} fill="url(#ntbCountFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+          </div>
+        </div>
 
-          <article className="panel trends-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Returning</p>
-                <h3>Returning customer count</h3>
+        <div className="trends-group">
+          <div className="panel trends-group-header">
+            <div>
+              <p className="eyebrow">Returning</p>
+              <h3>Returning customers</h3>
+            </div>
+            <PeriodToggle value={returningPeriod} onChange={setReturningPeriod} />
+          </div>
+          <div className="trends-chart-grid">
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div>
+                  <p className="eyebrow">Volume</p>
+                  <h3>Returning customer volume</h3>
+                </div>
+                <strong className="trends-kpi">{formatCurrency(totalReturnVolume)}</strong>
               </div>
-              <strong className="trends-kpi">{formatCount(peakReturnCount)} peak</strong>
-            </div>
-            <div className="trends-chart-canvas">
-              <ResponsiveContainer width="100%" height={CHART_H}>
-                <AreaChart data={breakdownChartData}>
-                  {chartGrad('returnCountFill', chartToneColors.warn)}
-                  {countAxes()}
-                  <Area type="monotone" dataKey="returnCount" name="Returning count" stroke={chartToneColors.warn} fill="url(#returnCountFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={CHART_H}>
+                  <AreaChart data={retChartData}>
+                    {chartGrad('returnVolumeFill', chartToneColors.warn)}
+                    {volumeAxes()}
+                    <Area type="monotone" dataKey="volume" name="Returning volume" stroke={chartToneColors.warn} fill="url(#returnVolumeFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
 
-          <article className="panel trends-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Returning</p>
-                <h3>Returning customer volume</h3>
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div>
+                  <p className="eyebrow">Count</p>
+                  <h3>Returning customer count</h3>
+                </div>
+                <strong className="trends-kpi">{formatCount(peakReturnCount)} peak</strong>
               </div>
-              <strong className="trends-kpi">{formatCurrency(totalReturnVolume)}</strong>
-            </div>
-            <div className="trends-chart-canvas">
-              <ResponsiveContainer width="100%" height={CHART_H}>
-                <AreaChart data={breakdownChartData}>
-                  {chartGrad('returnVolumeFill', chartToneColors.warn)}
-                  {volumeAxes()}
-                  <Area type="monotone" dataKey="returnVolume" name="Returning volume" stroke={chartToneColors.warn} fill="url(#returnVolumeFill)" strokeWidth={2} dot={false} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={CHART_H}>
+                  <AreaChart data={retChartData}>
+                    {chartGrad('returnCountFill', chartToneColors.warn)}
+                    {countAxes()}
+                    <Area type="monotone" dataKey="count" name="Returning count" stroke={chartToneColors.warn} fill="url(#returnCountFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+          </div>
         </div>
       </div>
     );

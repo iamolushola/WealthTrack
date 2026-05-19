@@ -245,8 +245,8 @@ export class AnalyticsService {
     };
   }
 
-  async trends(): Promise<object> {
-    const investments = await this.analyticsInvestmentRepository.listConfirmedValid();
+  async trends(filter?: { from?: string; to?: string }): Promise<object> {
+    const investments = await this.analyticsInvestmentRepository.listConfirmedValid(filter);
 
     return {
       daily: buildSeriesPoints(investments, (d) => d.toISOString().slice(0, 10)),

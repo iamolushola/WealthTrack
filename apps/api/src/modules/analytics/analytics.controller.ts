@@ -19,8 +19,11 @@ export class AnalyticsController {
 
   @RequirePermissions('dashboard.trends.read')
   @Get('trends')
-  async trends(): Promise<object> {
-    return this.analyticsService.trends();
+  async trends(
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ): Promise<object> {
+    return this.analyticsService.trends({ from, to });
   }
 
   @RequirePermissions('dashboard.customer_portfolio.read')
