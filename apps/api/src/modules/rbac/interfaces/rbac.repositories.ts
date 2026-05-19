@@ -2,6 +2,7 @@ import { PermissionRow, RolePermissionRow, RoleRow } from '@wealthtrack/shared-t
 
 export interface RoleRepository {
   list(): Promise<RoleRow[]>;
+  findById(id: string): Promise<RoleRow | null>;
   findByCode(code: string): Promise<RoleRow | null>;
 }
 

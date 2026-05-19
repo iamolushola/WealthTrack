@@ -117,7 +117,22 @@ export class UploadsService {
   }
 
   async history(actor: AuthenticatedActor): Promise<object> {
-    const items = await this.uploadBatchRepository.listByUploader(actor.actorId);
+    const items = await this.uploadBatchRepository.listAll();
     return { items, count: items.length };
+  }
+
+  async bulkDeleteAll(actor: AuthenticatedActor): Promise<object> {
+    this.uploadsPolicy.assertCanManageAll(actor);
+    const deleted = await this.uploadBatchRepository.deleteAll();
+    return { deleted, message: `${deleted} upload batch${deleted !== 1 ? 'es' : ''} permanently removed` };
+  }
+
+  async bulkDeleteByIds(ids: string[], actor: AuthenticatedActor): Promise<object> {
+    this.uploadsPolicy.assertCanManageAll(actor);
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { deleted: 0, message: 'No IDs provided' };
+    }
+    const deleted = await this.uploadBatchRepository.deleteByIds(ids);
+    return { deleted, message: `${deleted} upload batch${deleted !== 1 ? 'es' : ''} and linked investment records permanently removed` };
   }
 }

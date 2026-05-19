@@ -12,7 +12,7 @@ export class MysqlUserRepository implements UserRepository {
   }
 
   findById(id: string): Promise<UserRow | null> {
-    return this.mysql.selectOne<UserRow>('SELECT * FROM users WHERE id = ? LIMIT 1', [id]);
+    return this.mysql.selectOne<UserRow>('SELECT * FROM users WHERE id = ? AND deleted_at IS NULL LIMIT 1', [id]);
   }
 
   findByEmail(email: string): Promise<UserRow | null> {
@@ -20,14 +20,30 @@ export class MysqlUserRepository implements UserRepository {
   }
 
   async update(user: UserRow): Promise<void> {
-    await this.mysql.execute('UPDATE users SET ? WHERE id = ?', [user, user.id]);
+    await this.mysql.execute('UPDATE users SET ? WHERE id = ? AND deleted_at IS NULL', [user, user.id]);
   }
 
   list(cursor?: string, limit = 50): Promise<UserRow[]> {
     if (cursor) {
-      return this.mysql.selectMany<UserRow>('SELECT * FROM users WHERE id > ? ORDER BY id ASC LIMIT ?', [cursor, limit]);
+      return this.mysql.selectMany<UserRow>(
+        'SELECT * FROM users WHERE deleted_at IS NULL AND id > ? ORDER BY created_at DESC LIMIT ?',
+        [cursor, limit],
+      );
     }
 
-    return this.mysql.selectMany<UserRow>('SELECT * FROM users ORDER BY id ASC LIMIT ?', [limit]);
+    return this.mysql.selectMany<UserRow>(
+      'SELECT * FROM users WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT ?',
+      [limit],
+    );
+  }
+
+  async softDeleteByIds(ids: string[], deletedAt: string): Promise<number> {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(', ');
+    const result = await this.mysql.execute(
+      `UPDATE users SET deleted_at = ?, status = 'inactive' WHERE id IN (${placeholders}) AND deleted_at IS NULL`,
+      [deletedAt, ...ids],
+    );
+    return result.affectedRows as number;
   }
 }

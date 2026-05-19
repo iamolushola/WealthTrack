@@ -38,7 +38,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const role = await this.roleRepository.findByCode(user.roleId);
+    const role = await this.roleRepository.findById(user.roleId);
     const rolePermissions = await this.rolePermissionRepository.listByRoleId(user.roleId);
     const permissions = rolePermissions.length
       ? await this.permissionRepository.findByCodes([])
@@ -64,7 +64,7 @@ export class AuthService {
       ipAddress: null,
       userAgent: null,
       lastSeenAt: nowIso(),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(),
+      expiresAt: nowIso(new Date(Date.now() + 1000 * 60 * 60 * 24 * 7)),
       createdAt: nowIso(),
       revokedAt: null,
     });
@@ -79,6 +79,12 @@ export class AuthService {
       userAgent: null,
       correlationId: null,
       attemptedAt: nowIso(),
+    });
+
+    await this.usersRepository.update({
+      ...user,
+      lastLoginAt: nowIso(),
+      updatedAt: nowIso(),
     });
 
     return {

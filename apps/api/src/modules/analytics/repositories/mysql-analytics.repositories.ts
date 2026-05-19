@@ -1,16 +1,28 @@
 import { Injectable } from '@nestjs/common';
 import { InvestmentRecordRow, SourceChannelRow, TenorBandRow } from '@wealthtrack/shared-types';
 import { MysqlService } from '../../../persistence/mysql/mysql.service';
-import { AnalyticsInvestmentRepository, AnalyticsReferenceRepository } from '../interfaces/analytics.repositories';
+import { AnalyticsDateFilter, AnalyticsInvestmentRepository, AnalyticsReferenceRepository } from '../interfaces/analytics.repositories';
 
 @Injectable()
 export class MysqlAnalyticsInvestmentRepository implements AnalyticsInvestmentRepository {
   constructor(private readonly mysql: MysqlService) {}
 
-  listConfirmedValid(): Promise<InvestmentRecordRow[]> {
+  listConfirmedValid(filter?: AnalyticsDateFilter): Promise<InvestmentRecordRow[]> {
+    const conditions: string[] = ['record_status = ?', 'import_status = ?'];
+    const params: unknown[] = ['valid', 'confirmed'];
+
+    if (filter?.from) {
+      conditions.push('mobilisation_date >= ?');
+      params.push(filter.from);
+    }
+    if (filter?.to) {
+      conditions.push('mobilisation_date <= ?');
+      params.push(filter.to);
+    }
+
     return this.mysql.selectMany<InvestmentRecordRow>(
-      'SELECT * FROM investment_records WHERE record_status = ? AND import_status = ?',
-      ['valid', 'confirmed'],
+      `SELECT * FROM investment_records WHERE ${conditions.join(' AND ')}`,
+      params,
     );
   }
 }

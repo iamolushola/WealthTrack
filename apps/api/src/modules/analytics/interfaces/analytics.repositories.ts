@@ -1,7 +1,12 @@
 import { InvestmentRecordRow, SourceChannelRow, TenorBandRow } from '@wealthtrack/shared-types';
 
+export interface AnalyticsDateFilter {
+  from?: string; // YYYY-MM-DD
+  to?: string;   // YYYY-MM-DD
+}
+
 export interface AnalyticsInvestmentRepository {
-  listConfirmedValid(filters?: Record<string, unknown>): Promise<InvestmentRecordRow[]>;
+  listConfirmedValid(filter?: AnalyticsDateFilter): Promise<InvestmentRecordRow[]>;
 }
 
 export interface AnalyticsReferenceRepository {

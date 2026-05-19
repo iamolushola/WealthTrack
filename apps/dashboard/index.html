@@ -6,6 +6,17 @@
     <title>WealthTrack Admin Console</title>
   </head>
   <body>
+    <script>
+      (function () {
+        try {
+          var preference = window.localStorage.getItem('wealthtrack.theme');
+          if (preference === 'light' || preference === 'dark') {
+            document.documentElement.setAttribute('data-theme', preference);
+            document.documentElement.style.colorScheme = preference;
+          }
+        } catch (_) {}
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

@@ -7,6 +7,20 @@ import { InvestmentRecordRepository } from '../interfaces/investments.repositori
 export class MysqlInvestmentRecordRepository implements InvestmentRecordRepository {
   constructor(private readonly mysql: MysqlService) {}
 
+  findAll(cursor?: string, limit = 50): Promise<InvestmentRecordRow[]> {
+    if (cursor) {
+      return this.mysql.selectMany<InvestmentRecordRow>(
+        'SELECT * FROM investment_records WHERE id > ? ORDER BY mobilisation_date DESC, id ASC LIMIT ?',
+        [cursor, limit],
+      );
+    }
+
+    return this.mysql.selectMany<InvestmentRecordRow>(
+      'SELECT * FROM investment_records ORDER BY mobilisation_date DESC, id ASC LIMIT ?',
+      [limit],
+    );
+  }
+
   findById(id: string): Promise<InvestmentRecordRow | null> {
     return this.mysql.selectOne<InvestmentRecordRow>('SELECT * FROM investment_records WHERE id = ? LIMIT 1', [id]);
   }
@@ -31,5 +45,25 @@ export class MysqlInvestmentRecordRepository implements InvestmentRecordReposito
 
   findBySourceHash(sourceHash: string): Promise<InvestmentRecordRow | null> {
     return this.mysql.selectOne<InvestmentRecordRow>('SELECT * FROM investment_records WHERE source_record_hash = ? LIMIT 1', [sourceHash]);
+  }
+
+  async deleteByIds(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(', ');
+    const result = await this.mysql.execute(
+      `DELETE FROM investment_records WHERE id IN (${placeholders})`,
+      ids,
+    );
+    return result.affectedRows as number;
+  }
+
+  async deleteByCustomerIds(customerIds: string[]): Promise<number> {
+    if (customerIds.length === 0) return 0;
+    const placeholders = customerIds.map(() => '?').join(', ');
+    const result = await this.mysql.execute(
+      `DELETE FROM investment_records WHERE customer_id IN (${placeholders})`,
+      customerIds,
+    );
+    return result.affectedRows as number;
   }
 }

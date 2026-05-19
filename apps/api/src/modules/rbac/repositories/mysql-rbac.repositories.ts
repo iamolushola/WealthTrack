@@ -11,6 +11,10 @@ export class MysqlRoleRepository implements RoleRepository {
     return this.mysql.selectMany<RoleRow>('SELECT * FROM roles ORDER BY code ASC');
   }
 
+  findById(id: string): Promise<RoleRow | null> {
+    return this.mysql.selectOne<RoleRow>('SELECT * FROM roles WHERE id = ? LIMIT 1', [id]);
+  }
+
   findByCode(code: string): Promise<RoleRow | null> {
     return this.mysql.selectOne<RoleRow>('SELECT * FROM roles WHERE code = ? LIMIT 1', [code]);
   }

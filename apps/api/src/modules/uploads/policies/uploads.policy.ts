@@ -14,4 +14,10 @@ export class UploadsPolicy {
       throw new ForbiddenException('uploads.import.confirm is required');
     }
   }
+
+  assertCanManageAll(actor: AuthenticatedActor | undefined): void {
+    if (!actor?.permissions.includes('users.create')) {
+      throw new ForbiddenException('Super Admin access required to manage all upload data');
+    }
+  }
 }

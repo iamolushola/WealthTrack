@@ -33,8 +33,35 @@ export class MysqlUploadBatchRepository implements UploadBatchRepository {
     );
   }
 
+  listAll(cursor?: string, limit = 100): Promise<UploadBatchRow[]> {
+    if (cursor) {
+      return this.mysql.selectMany<UploadBatchRow>(
+        'SELECT * FROM upload_batches WHERE id > ? ORDER BY created_at DESC LIMIT ?',
+        [cursor, limit],
+      );
+    }
+
+    return this.mysql.selectMany<UploadBatchRow>('SELECT * FROM upload_batches ORDER BY created_at DESC LIMIT ?', [limit]);
+  }
+
   async updateStatus(id: string, status: UploadBatchRow['status']): Promise<void> {
     await this.mysql.execute('UPDATE upload_batches SET status = ? WHERE id = ?', [status, id]);
+  }
+
+  async deleteAll(): Promise<number> {
+    const result = await this.mysql.execute('DELETE FROM upload_batches');
+    return result.affectedRows;
+  }
+
+  async deleteByIds(ids: string[]): Promise<number> {
+    if (ids.length === 0) return 0;
+    const placeholders = ids.map(() => '?').join(', ');
+    // Delete in FK-safe order: errors → investment records → batch rows → batches
+    await this.mysql.execute(`DELETE FROM upload_validation_errors WHERE upload_batch_id IN (${placeholders})`, ids);
+    await this.mysql.execute(`DELETE FROM investment_records WHERE import_batch_id IN (${placeholders})`, ids);
+    await this.mysql.execute(`DELETE FROM upload_batch_rows WHERE upload_batch_id IN (${placeholders})`, ids);
+    const result = await this.mysql.execute(`DELETE FROM upload_batches WHERE id IN (${placeholders})`, ids);
+    return result.affectedRows as number;
   }
 }
 

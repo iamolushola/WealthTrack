@@ -3,6 +3,7 @@ import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { UsersPolicy } from './policies/users.policy';
 import { CreateUserRequestDto } from './dto/requests/create-user.request.dto';
 import { UpdateUserRequestDto } from './dto/requests/update-user.request.dto';
+import { UpdateUserPasswordRequestDto } from './dto/requests/update-user-password.request.dto';
 import { UpdateUserStatusRequestDto } from './dto/requests/update-user-status.request.dto';
 import { MysqlUserRepository } from './repositories/mysql-user.repository';
 import { MysqlRoleRepository } from '../rbac/repositories/mysql-rbac.repositories';
@@ -25,8 +26,16 @@ export class UsersService {
 
   async list(actor: AuthenticatedActor): Promise<object> {
     this.usersPolicy.assertCanRead(actor);
-    const items = await this.usersRepository.list();
-    return { items: items.map((user) => sanitizeUser(user)), count: items.length };
+    const [items, roles] = await Promise.all([this.usersRepository.list(), this.roleRepository.list()]);
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
+    return {
+      items: items.map((user) => ({
+        ...sanitizeUser(user),
+        roleCode: roleMap.get(user.roleId)?.code ?? null,
+        roleName: roleMap.get(user.roleId)?.name ?? null,
+      })),
+      count: items.length,
+    };
   }
 
   async getById(id: string, actor: AuthenticatedActor): Promise<object> {
@@ -97,6 +106,24 @@ export class UsersService {
     return sanitizeUser(updatedUser);
   }
 
+  async updatePassword(id: string, payload: UpdateUserPasswordRequestDto, actor: AuthenticatedActor): Promise<object> {
+    this.usersPolicy.assertCanManage(actor, 'users.update');
+    const user = await this.usersRepository.findById(id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const updatedUser: UserRow = {
+      ...user,
+      passwordHash: hashPassword(payload.password),
+      updatedAt: nowIso(),
+      updatedBy: actor.actorId,
+    };
+
+    await this.usersRepository.update(updatedUser);
+    return { id: user.id, message: 'Password updated successfully' };
+  }
+
   async changeStatus(id: string, payload: UpdateUserStatusRequestDto, actor: AuthenticatedActor): Promise<object> {
     this.usersPolicy.assertCanManage(actor, 'users.deactivate');
     const user = await this.usersRepository.findById(id);
@@ -113,5 +140,19 @@ export class UsersService {
 
     await this.usersRepository.update(updatedUser);
     return sanitizeUser(updatedUser);
+  }
+
+  async bulkSoftDelete(ids: string[], actor: AuthenticatedActor): Promise<object> {
+    this.usersPolicy.assertCanManage(actor, 'users.deactivate');
+    if (actor?.actorType !== 'admin') {
+      throw new Error('Admin role is required to bulk-delete users');
+    }
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return { deleted: 0, message: 'No IDs provided' };
+    }
+    // Prevent deleting own account
+    const safeIds = ids.filter((id) => id !== actor.actorId);
+    const deleted = await this.usersRepository.softDeleteByIds(safeIds, nowIso());
+    return { deleted, message: `${deleted} user${deleted !== 1 ? 's' : ''} removed` };
   }
 }

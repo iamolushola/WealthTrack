@@ -1,10 +1,11 @@
-import { Body, Controller, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { CurrentActor } from '../../common/decorators/current-actor.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { CreateUserRequestDto } from './dto/requests/create-user.request.dto';
 import { UpdateUserRequestDto } from './dto/requests/update-user.request.dto';
+import { UpdateUserPasswordRequestDto } from './dto/requests/update-user-password.request.dto';
 import { UpdateUserStatusRequestDto } from './dto/requests/update-user-status.request.dto';
 import { UsersService } from './users.service';
 
@@ -25,6 +26,15 @@ export class UsersController {
     return this.usersService.getById(id, actor);
   }
 
+  @RequirePermissions('users.deactivate')
+  @Delete()
+  bulkDelete(
+    @CurrentActor() actor: AuthenticatedActor,
+    @Body() body: { ids: string[] },
+  ): Promise<object> {
+    return this.usersService.bulkSoftDelete(body?.ids ?? [], actor);
+  }
+
   @RequirePermissions('users.create')
   @Post()
   async create(@Body() payload: CreateUserRequestDto, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
@@ -39,6 +49,16 @@ export class UsersController {
     @CurrentActor() actor: AuthenticatedActor,
   ): Promise<object> {
     return this.usersService.update(id, payload, actor);
+  }
+
+  @RequirePermissions('users.update')
+  @Patch(':id/password')
+  updatePassword(
+    @Param('id') id: string,
+    @Body() payload: UpdateUserPasswordRequestDto,
+    @CurrentActor() actor: AuthenticatedActor,
+  ): Promise<object> {
+    return this.usersService.updatePassword(id, payload, actor);
   }
 
   @RequirePermissions('users.deactivate')

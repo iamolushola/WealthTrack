@@ -30,10 +30,12 @@ export class PermissionGuard implements CanActivate {
 
     const actorIdHeader = request.headers['x-actor-id'];
     const actorTypeHeader = request.headers['x-actor-type'];
+    const sessionIdHeader = request.headers['x-session-id'];
     const permissionsHeader = request.headers['x-permissions'];
 
     const actorId = Array.isArray(actorIdHeader) ? actorIdHeader[0] : actorIdHeader;
     const actorType = Array.isArray(actorTypeHeader) ? actorTypeHeader[0] : actorTypeHeader;
+    const sessionId = Array.isArray(sessionIdHeader) ? sessionIdHeader[0] : sessionIdHeader;
     const rawPermissions = Array.isArray(permissionsHeader) ? permissionsHeader.join(',') : permissionsHeader;
 
     if (!actorId || !actorType) {
@@ -48,6 +50,7 @@ export class PermissionGuard implements CanActivate {
     request.actor = {
       actorId,
       actorType: actorType as AuthenticatedActor['actorType'],
+      sessionId,
       permissions,
     };
 

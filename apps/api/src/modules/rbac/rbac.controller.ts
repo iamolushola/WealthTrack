@@ -14,4 +14,9 @@ export class RbacController {
   async permissions(): Promise<object> {
     return this.rbacService.permissions();
   }
+
+  @Get('role-permissions')
+  async rolePermissions(): Promise<object> {
+    return this.rbacService.rolePermissionsMatrix();
+  }
 }

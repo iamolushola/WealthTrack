@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
 import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { CurrentActor } from '../../common/decorators/current-actor.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -54,5 +54,17 @@ export class UploadsController {
   @Get('history')
   history(@CurrentActor() actor: AuthenticatedActor): Promise<object> {
     return this.uploadsService.history(actor);
+  }
+
+  @RequirePermissions('users.create')
+  @Delete()
+  bulkDelete(
+    @CurrentActor() actor: AuthenticatedActor,
+    @Body() body: { ids?: string[] },
+  ): Promise<object> {
+    if (Array.isArray(body?.ids) && body.ids.length > 0) {
+      return this.uploadsService.bulkDeleteByIds(body.ids, actor);
+    }
+    return this.uploadsService.bulkDeleteAll(actor);
   }
 }
