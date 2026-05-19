@@ -3774,22 +3774,30 @@ select:focus-visible {
   flex-wrap: wrap;
 }
 
-.trends-toolbar-left {
+.trends-toolbar-controls {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 16px;
   flex-wrap: wrap;
 }
 
-.trends-toolbar-right {
+.trends-toolbar-group {
   display: flex;
   align-items: center;
+  gap: 8px;
 }
 
-.trends-date-sep {
-  font-size: 0.8rem;
-  color: var(--soft);
+.trends-toolbar-divider {
+  width: 1px;
+  height: 24px;
+  background: var(--line);
   flex-shrink: 0;
+}
+
+.trends-toolbar-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 
 .trends-period-label {
@@ -3799,30 +3807,6 @@ select:focus-visible {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   white-space: nowrap;
-}
-
-.trends-group {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.trends-group-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 14px 20px;
-}
-
-.trends-group-header h3 {
-  font-size: 0.95rem;
-}
-
-.trends-group-period .range-option {
-  padding: 0 10px;
-  min-height: 28px;
-  font-size: 0.72rem;
 }
 
 .trends-chart-grid {
