@@ -104,7 +104,8 @@ function buildBreakdownPoints(
     midShortTermInvestment: number;
     mediumTermInvestment: number;
     longTermInvestment: number;
-    customers: Set<string>;
+    newCustomers: Set<string>;
+    returningCustomers: Set<string>;
   };
 
   const buckets = new Map<string, Bucket>();
@@ -125,14 +126,19 @@ function buildBreakdownPoints(
         midShortTermInvestment: 0,
         mediumTermInvestment: 0,
         longTermInvestment: 0,
-        customers: new Set(),
+        newCustomers: new Set(),
+        returningCustomers: new Set(),
       });
     }
 
     const bucket = buckets.get(key)!;
-    bucket.customers.add(record.customerId);
-    if (record.customerType === 'new') bucket.newCustomerInvestment += amount;
-    else bucket.returningCustomerInvestment += amount;
+    if (record.customerType === 'new') {
+      bucket.newCustomers.add(record.customerId);
+      bucket.newCustomerInvestment += amount;
+    } else {
+      bucket.returningCustomers.add(record.customerId);
+      bucket.returningCustomerInvestment += amount;
+    }
     if (record.fundType === 'inflow') bucket.inflowInvestment += amount;
     else bucket.rolloverInvestment += amount;
     if (record.tenorCategory === 'short_term') bucket.shortTermInvestment += amount;
@@ -153,7 +159,9 @@ function buildBreakdownPoints(
       midShortTermInvestment: bucket.midShortTermInvestment,
       mediumTermInvestment: bucket.mediumTermInvestment,
       longTermInvestment: bucket.longTermInvestment,
-      uniqueCustomers: bucket.customers.size,
+      newCustomerCount: bucket.newCustomers.size,
+      returningCustomerCount: bucket.returningCustomers.size,
+      uniqueCustomers: bucket.newCustomers.size + bucket.returningCustomers.size,
     }));
 }
 

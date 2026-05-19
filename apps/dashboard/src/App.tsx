@@ -139,6 +139,8 @@ type TrendBreakdownPoint = {
   mediumTermInvestment: number;
   longTermInvestment: number;
   uniqueCustomers: number;
+  newCustomerCount: number;
+  returningCustomerCount: number;
 };
 
 type TrendsOverview = {
@@ -149,6 +151,7 @@ type TrendsOverview = {
   yearly: TrendSeriesPoint[];
   trendBreakdown: {
     daily: TrendBreakdownPoint[];
+    weekly: TrendBreakdownPoint[];
     monthly: TrendBreakdownPoint[];
   };
 };
@@ -1030,6 +1033,7 @@ function App() {
     System: false,
   });
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [trendsPeriod, setTrendsPeriod] = useState<'daily' | 'weekly' | 'monthly'>('monthly');
   const [isDark, setIsDark] = useState(() => {
     const saved = localStorage.getItem('wt-theme');
     if (saved) return saved === 'dark';
@@ -3095,6 +3099,243 @@ function App() {
     );
   }
 
+  function renderTrends(): ReactNode {
+    if (trendsOverview.status === 'loading' && !trendsData) {
+      return (
+        <section className="panel table-panel" aria-label="Trends loading">
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="refresh" /></div>
+            <h4>Loading trend data</h4>
+            <p>Fetching historical investment series from the analytics engine.</p>
+          </div>
+        </section>
+      );
+    }
+
+    if (trendsOverview.status === 'error' && !trendsData) {
+      return (
+        <section className="panel table-panel" aria-label="Trends error">
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="alert" /></div>
+            <h4>Trend data unavailable</h4>
+            <p>{trendsOverview.error ?? 'Unable to load trend data from the analytics API.'}</p>
+          </div>
+        </section>
+      );
+    }
+
+    function formatTrendPeriod(period: string): string {
+      if (period.includes('-W')) {
+        return period.split('-')[1];
+      }
+      if (period.length === 7) {
+        const d = new Date(`${period}-01T00:00:00`);
+        return d.toLocaleDateString('en', { month: 'short', year: '2-digit' });
+      }
+      if (period.length === 10) {
+        const d = new Date(`${period}T00:00:00`);
+        return d.toLocaleDateString('en', { month: 'short', day: 'numeric' });
+      }
+      return period;
+    }
+
+    const series = trendsData?.[trendsPeriod] ?? [];
+    const breakdown = trendsData?.trendBreakdown[trendsPeriod] ?? [];
+
+    const seriesChartData = series.map((p) => ({
+      label: formatTrendPeriod(p.period),
+      count: p.investmentCount,
+      volume: p.totalInvestment,
+    }));
+
+    const breakdownChartData = breakdown.map((p) => ({
+      label: formatTrendPeriod(p.period),
+      ntbCount: p.newCustomerCount,
+      ntbVolume: p.newCustomerInvestment,
+      returnCount: p.returningCustomerCount,
+      returnVolume: p.returningCustomerInvestment,
+    }));
+
+    const totalAUMCount = series.reduce((s, p) => s + p.investmentCount, 0);
+    const totalAUMVolume = series.reduce((s, p) => s + p.totalInvestment, 0);
+    const peakNTBCount = breakdown.length > 0 ? Math.max(...breakdown.map((p) => p.newCustomerCount)) : 0;
+    const totalNTBVolume = breakdown.reduce((s, p) => s + p.newCustomerInvestment, 0);
+    const peakReturnCount = breakdown.length > 0 ? Math.max(...breakdown.map((p) => p.returningCustomerCount)) : 0;
+    const totalReturnVolume = breakdown.reduce((s, p) => s + p.returningCustomerInvestment, 0);
+
+    const gridStroke = 'rgba(20, 41, 37, 0.06)';
+    const CHART_H = 200;
+
+    function chartGrad(id: string, color: string): ReactNode {
+      return (
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.22} />
+            <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+      );
+    }
+
+    function countAxes(): ReactNode {
+      return (
+        <>
+          <CartesianGrid vertical={false} stroke={gridStroke} />
+          <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} interval="preserveStartEnd" />
+          <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={44} />
+          <Tooltip />
+        </>
+      );
+    }
+
+    function volumeAxes(): ReactNode {
+      return (
+        <>
+          <CartesianGrid vertical={false} stroke={gridStroke} />
+          <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} interval="preserveStartEnd" />
+          <YAxis axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={60} tickFormatter={(v: number) => formatCurrency(v)} />
+          <Tooltip formatter={(v: number) => formatCurrency(v)} />
+        </>
+      );
+    }
+
+    return (
+      <div className="trends-charts-page">
+        <section className="panel trends-period-toolbar">
+          <span className="trends-period-label">Resolution</span>
+          <div className="range-toggle" role="tablist" aria-label="Chart resolution">
+            {(['daily', 'weekly', 'monthly'] as const).map((p) => (
+              <button
+                key={p}
+                type="button"
+                className={p === trendsPeriod ? 'range-option range-option-active' : 'range-option'}
+                onClick={() => setTrendsPeriod(p)}
+              >
+                {p.charAt(0).toUpperCase() + p.slice(1)}
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <div className="trends-chart-grid">
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">AUM</p>
+                <h3>Investment count</h3>
+              </div>
+              <strong className="trends-kpi">{formatCount(totalAUMCount)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={seriesChartData}>
+                  {chartGrad('aumCountFill', chartToneColors.brand)}
+                  {countAxes()}
+                  <Area type="monotone" dataKey="count" name="Count" stroke={chartToneColors.brand} fill="url(#aumCountFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">AUM</p>
+                <h3>Investment volume</h3>
+              </div>
+              <strong className="trends-kpi">{formatCurrency(totalAUMVolume)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={seriesChartData}>
+                  {chartGrad('aumVolumeFill', chartToneColors.brand)}
+                  {volumeAxes()}
+                  <Area type="monotone" dataKey="volume" name="Volume" stroke={chartToneColors.brand} fill="url(#aumVolumeFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">NTB</p>
+                <h3>New customer count</h3>
+              </div>
+              <strong className="trends-kpi">{formatCount(peakNTBCount)} peak</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={breakdownChartData}>
+                  {chartGrad('ntbCountFill', chartToneColors.good)}
+                  {countAxes()}
+                  <Area type="monotone" dataKey="ntbCount" name="NTB count" stroke={chartToneColors.good} fill="url(#ntbCountFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">NTB</p>
+                <h3>New customer volume</h3>
+              </div>
+              <strong className="trends-kpi">{formatCurrency(totalNTBVolume)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={breakdownChartData}>
+                  {chartGrad('ntbVolumeFill', chartToneColors.good)}
+                  {volumeAxes()}
+                  <Area type="monotone" dataKey="ntbVolume" name="NTB volume" stroke={chartToneColors.good} fill="url(#ntbVolumeFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">Returning</p>
+                <h3>Returning customer count</h3>
+              </div>
+              <strong className="trends-kpi">{formatCount(peakReturnCount)} peak</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={breakdownChartData}>
+                  {chartGrad('returnCountFill', chartToneColors.warn)}
+                  {countAxes()}
+                  <Area type="monotone" dataKey="returnCount" name="Returning count" stroke={chartToneColors.warn} fill="url(#returnCountFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div>
+                <p className="eyebrow">Returning</p>
+                <h3>Returning customer volume</h3>
+              </div>
+              <strong className="trends-kpi">{formatCurrency(totalReturnVolume)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={breakdownChartData}>
+                  {chartGrad('returnVolumeFill', chartToneColors.warn)}
+                  {volumeAxes()}
+                  <Area type="monotone" dataKey="returnVolume" name="Returning volume" stroke={chartToneColors.warn} fill="url(#returnVolumeFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+        </div>
+      </div>
+    );
+  }
+
   function renderWorkbench(): ReactNode {
     if (currentView === 'settings') {
       const activeTenorBands = settingsData?.tenorBands.filter((item) => item.status === 'active') ?? [];
@@ -3445,13 +3686,7 @@ function App() {
                   ) : currentView === 'wealth-managers' ? (
                     renderWealthManagers()
                   ) : currentView === 'trends' ? (
-                    <section className="panel table-panel" aria-label="Trends list unavailable">
-                      <div className="empty-state" role="status" aria-live="polite">
-                        <div className="empty-state-icon"><Icon name="alert" /></div>
-                        <h4>List view unavailable</h4>
-                        <p>Trend details are currently shown through the aggregate metrics above.</p>
-                      </div>
-                    </section>
+                    renderTrends()
                   ) : (
                     <>
                       <section className="panel table-panel">
