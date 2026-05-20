@@ -331,6 +331,8 @@ type UserItem = {
   name: string;
   email: string;
   roleId: string;
+  roleCode: string | null;
+  roleName: string | null;
   status: 'active' | 'inactive' | 'suspended';
   lastLoginAt: string | null;
   createdAt: string;
@@ -442,7 +444,10 @@ type IconName =
   | 'launch'
   | 'mail'
   | 'sun'
-  | 'moon';
+  | 'moon'
+  | 'eye'
+  | 'eye-off'
+  | 'edit';
 
 const rangeOptions: RangeOption[] = ['7D', '30D', 'Quarter', 'YTD'];
 
@@ -461,9 +466,10 @@ const dashboardRequestHeaders = {
     'dashboard.customer_portfolio.read',
     'dashboard.wealth_manager.read',
     'uploads.history.read',
-    'audit.logs.read',
-    'integrations.read',
     'users.read',
+    'users.create',
+    'users.update',
+    'users.deactivate',
     'settings.update',
     'reports.export',
   ].join(','),
@@ -781,6 +787,9 @@ function Icon({ name }: { name: IconName }) {
     mail: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="m4 7 8 6 8-6" /></>,
     sun: <><circle cx="12" cy="12" r="4" /><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" /></>,
     moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />,
+    eye: <><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z" /><circle cx="12" cy="12" r="3" /></>,
+    'eye-off': <><path d="M10.7 5.1A10 10 0 0 1 12 5c7 0 10 7 10 7a17.4 17.4 0 0 1-2.5 3.7" /><path d="M6.5 6.5A17.4 17.4 0 0 0 2 12s3 7 10 7a9.9 9.9 0 0 0 5.5-1.6" /><path d="M14.8 14.8A3 3 0 1 1 9.2 9.2" /><path d="m2 2 20 20" /></>,
+    edit: <><path d="M4 20h4l10.5-10.5a2.12 2.12 0 0 0-3-3L5 17v3" /><path d="m13.5 6.5 3 3" /></>,
   };
 
   return <svg {...common} aria-hidden="true">{paths[name]}</svg>;
@@ -1048,6 +1057,33 @@ function Paginator({ page, totalPages, totalItems, pageSize, isLoading, onPageCh
   );
 }
 
+type RoleItem = { id: string; code: string; name: string; description: string | null; isSystem?: boolean };
+type PermissionItem = { id: string; code: string; description: string | null };
+type RoleWithPermissions = RoleItem & { permissionCodes: string[] };
+type RolePermissionsMatrix = { roles: RoleWithPermissions[]; permissions: PermissionItem[] };
+
+async function apiMutate<T>(method: string, path: string, body?: unknown): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}/${path}`, {
+    method,
+    headers: {
+      ...dashboardRequestHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+
+  if (!response.ok) {
+    let message = `HTTP ${response.status}`;
+    try {
+      const err = await response.json() as { message?: string };
+      if (err.message) message = Array.isArray(err.message) ? err.message.join(', ') : err.message;
+    } catch { /* ignore parse errors */ }
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<T>;
+}
+
 function App() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     Dashboards: false,
@@ -1072,6 +1108,18 @@ function App() {
   const [settingsTab, setSettingsTab] = useState<'profile' | 'security' | 'config' | 'notifications'>('profile');
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', email: '', userType: '' });
   const [securityForm, setSecurityForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
+  const [showCurrentPwd, setShowCurrentPwd] = useState(false);
+  const [showNewPwd, setShowNewPwd] = useState(false);
+  const [showConfirmPwd, setShowConfirmPwd] = useState(false);
+  const [rolesData, setRolesData] = useState<RequestState<{ items: RoleItem[]; count: number }>>({ status: 'idle', data: null, error: null });
+  const [roleMatrix, setRoleMatrix] = useState<RequestState<RolePermissionsMatrix>>({ status: 'idle', data: null, error: null });
+  const [userDrawer, setUserDrawer] = useState<{ mode: 'invite' | 'edit' | null; userId?: string }>({ mode: null });
+  const [inviteForm, setInviteForm] = useState({ name: '', email: '', roleCode: 'analyst', password: '', confirmPassword: '' });
+  const [editForm, setEditForm] = useState({ name: '', email: '', roleCode: '', status: '' });
+  const [showInvitePwd, setShowInvitePwd] = useState(false);
+  const [showInviteConfirmPwd, setShowInviteConfirmPwd] = useState(false);
+  const [showEditPwd, setShowEditPwd] = useState(false);
+  const [newRoleForm, setNewRoleForm] = useState({ name: '', code: '', description: '' });
   const [reportsOverview, setReportsOverview] = useState<ReportsOverviewState>({
     status: 'idle',
     items: [],
@@ -1530,6 +1578,30 @@ function App() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView]);
+
+  // Load available roles whenever the users page is open (for invite/edit dropdowns)
+  useEffect(() => {
+    if (currentView !== 'users' || rolesData.status !== 'idle') return undefined;
+    let cancelled = false;
+    setRolesData({ status: 'loading', data: null, error: null });
+    void fetchViewData<{ items: RoleItem[]; count: number }>('roles')
+      .then((data) => { if (!cancelled) setRolesData({ status: 'ready', data, error: null }); })
+      .catch((err: unknown) => { if (!cancelled) setRolesData({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView]);
+
+  // Load role-permissions matrix when Roles & Permissions tab opens
+  useEffect(() => {
+    if (currentView !== 'users' || usersTab !== 'roles' || roleMatrix.status !== 'idle') return undefined;
+    let cancelled = false;
+    setRoleMatrix({ status: 'loading', data: null, error: null });
+    void fetchViewData<RolePermissionsMatrix>('role-permissions')
+      .then((data) => { if (!cancelled) setRoleMatrix({ status: 'ready', data, error: null }); })
+      .catch((err: unknown) => { if (!cancelled) setRoleMatrix({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, usersTab]);
 
   const currentDefinition = views.find((view) => view.id === currentView) ?? views[0];
   const summaryData = summaryOverview.data;
@@ -3191,145 +3263,419 @@ function App() {
     );
   }
 
-  function renderUsersPage(): ReactNode {
-    const roleGroups = userItems.reduce<Record<string, { roleId: string; members: typeof userItems }>>((acc, item) => {
-      const existing = acc[item.roleId] ?? { roleId: item.roleId, members: [] };
-      existing.members.push(item);
-      acc[item.roleId] = existing;
-      return acc;
-    }, {});
-    const roles = Object.values(roleGroups);
+  function renderUserDrawer(): ReactNode {
+    if (userDrawer.mode === null) return null;
+
+    const isInvite = userDrawer.mode === 'invite';
+    const editingUser = isInvite ? null : userItems.find((u) => u.id === userDrawer.userId) ?? null;
+    const availableRoles = rolesData.data?.items ?? [];
+
+    function closeDrawer() {
+      setUserDrawer({ mode: null });
+      setInviteForm({ name: '', email: '', roleCode: 'analyst', password: '', confirmPassword: '' });
+      setShowInvitePwd(false);
+      setShowInviteConfirmPwd(false);
+      setShowEditPwd(false);
+    }
+
+    async function handleInviteSubmit() {
+      if (!inviteForm.name.trim() || !inviteForm.email.trim()) {
+        setNotice({ message: 'Name and email are required', tone: 'warn' }); return;
+      }
+      if (inviteForm.password.length < 8) {
+        setNotice({ message: 'Password must be at least 8 characters', tone: 'warn' }); return;
+      }
+      if (inviteForm.password !== inviteForm.confirmPassword) {
+        setNotice({ message: 'Passwords do not match', tone: 'warn' }); return;
+      }
+      try {
+        await apiMutate('POST', 'users', { name: inviteForm.name.trim(), email: inviteForm.email.trim(), roleCode: inviteForm.roleCode, password: inviteForm.password });
+        setNotice({ message: `${inviteForm.name} has been added to the team`, tone: 'info' });
+        setUsersOverview({ status: 'idle', data: null, error: null });
+        closeDrawer();
+      } catch (err: unknown) {
+        setNotice({ message: err instanceof Error ? err.message : 'Failed to invite user', tone: 'warn' });
+      }
+    }
+
+    async function handleEditSubmit() {
+      if (!editingUser) return;
+      try {
+        await apiMutate('PATCH', `users/${editingUser.id}`, { name: editForm.name || undefined, email: editForm.email || undefined, roleCode: editForm.roleCode || undefined });
+        if (editForm.status && editForm.status !== editingUser.status) {
+          await apiMutate('PATCH', `users/${editingUser.id}/status`, { status: editForm.status });
+        }
+        setNotice({ message: 'User updated successfully', tone: 'info' });
+        setUsersOverview({ status: 'idle', data: null, error: null });
+        closeDrawer();
+      } catch (err: unknown) {
+        setNotice({ message: err instanceof Error ? err.message : 'Failed to update user', tone: 'warn' });
+      }
+    }
 
     return (
-      <div className="settings-page">
-        <div className="settings-page-header">
-          <h2>Team</h2>
-          <p>Manage admin accounts, roles, and permissions</p>
-        </div>
+      <>
+        <div className="drawer-scrim" onClick={closeDrawer} aria-hidden="true" />
+        <aside className="drawer" role="dialog" aria-modal="true" aria-label={isInvite ? 'Invite user' : 'Edit user'}>
+          <div className="drawer-header">
+            <h3>{isInvite ? 'Invite User' : 'Edit User'}</h3>
+            <button className="icon-button" type="button" onClick={closeDrawer} aria-label="Close drawer">
+              <Icon name="x" />
+            </button>
+          </div>
 
-        <div className="customer-tab-bar" role="tablist">
-          <button
-            role="tab"
-            aria-selected={usersTab === 'admins'}
-            className={usersTab === 'admins' ? 'customer-tab customer-tab-active' : 'customer-tab'}
-            onClick={() => setUsersTab('admins')}
-          >
-            Admins
-          </button>
-          <button
-            role="tab"
-            aria-selected={usersTab === 'roles'}
-            className={usersTab === 'roles' ? 'customer-tab customer-tab-active' : 'customer-tab'}
-            onClick={() => setUsersTab('roles')}
-          >
-            Roles &amp; Permissions
-          </button>
-        </div>
-
-        {usersTab === 'admins' ? (
-          <section className="panel table-panel">
-            <div className="panel-header">
-              <div>
-                <h3>Administrators</h3>
-                <p className="eyebrow">{formatCount(userItems.length)} accounts</p>
+          <div className="drawer-body">
+            {isInvite ? (
+              <div className="form-grid">
+                <label className="field-card">
+                  <span className="field-label">Full Name</span>
+                  <input type="text" value={inviteForm.name} onChange={(e) => setInviteForm((p) => ({ ...p, name: e.target.value }))} placeholder="Jane Smith" autoComplete="name" />
+                </label>
+                <label className="field-card">
+                  <span className="field-label">Email</span>
+                  <input type="email" value={inviteForm.email} onChange={(e) => setInviteForm((p) => ({ ...p, email: e.target.value }))} placeholder="jane@company.com" autoComplete="email" />
+                </label>
+                <label className="field-card field-card-wide">
+                  <span className="field-label">Role</span>
+                  <select value={inviteForm.roleCode} onChange={(e) => setInviteForm((p) => ({ ...p, roleCode: e.target.value }))}>
+                    {availableRoles.length > 0
+                      ? availableRoles.map((r) => <option key={r.id} value={r.code}>{r.name}</option>)
+                      : <><option value="admin">Administrator</option><option value="analyst">Analyst</option><option value="uploader">Uploader</option></>
+                    }
+                  </select>
+                </label>
+                <label className="field-card">
+                  <span className="field-label">Password</span>
+                  <div className="password-input-shell">
+                    <input type={showInvitePwd ? 'text' : 'password'} value={inviteForm.password} onChange={(e) => setInviteForm((p) => ({ ...p, password: e.target.value }))} placeholder="Min. 8 characters" autoComplete="new-password" />
+                    <button type="button" className="password-toggle" onClick={() => setShowInvitePwd((p) => !p)} aria-label={showInvitePwd ? 'Hide password' : 'Show password'}><Icon name={showInvitePwd ? 'eye-off' : 'eye'} /></button>
+                  </div>
+                </label>
+                <label className="field-card">
+                  <span className="field-label">Confirm Password</span>
+                  <div className="password-input-shell">
+                    <input type={showInviteConfirmPwd ? 'text' : 'password'} value={inviteForm.confirmPassword} onChange={(e) => setInviteForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Repeat password" autoComplete="new-password" />
+                    <button type="button" className="password-toggle" onClick={() => setShowInviteConfirmPwd((p) => !p)} aria-label={showInviteConfirmPwd ? 'Hide password' : 'Show password'}><Icon name={showInviteConfirmPwd ? 'eye-off' : 'eye'} /></button>
+                  </div>
+                </label>
               </div>
-              <div className="panel-header-actions">
-                <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Invite administrator', description: 'Send an invitation email to a new admin. They will be prompted to set a password on first login.', confirmLabel: 'Send invite', tone: 'default' })}>
-                  Invite user
-                </button>
-              </div>
-            </div>
-            {usersOverview.status === 'loading' ? (
-              <div className="empty-state">
-                <div className="empty-state-icon"><Icon name="refresh" /></div>
-                <h4>Loading team</h4>
-                <p>Fetching admin accounts from the API.</p>
-              </div>
-            ) : userItems.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon"><Icon name="users" /></div>
-                <h4>No admins found</h4>
-                <p>Invite a user to get started.</p>
+            ) : editingUser ? (
+              <div className="form-grid">
+                <label className="field-card">
+                  <span className="field-label">Full Name</span>
+                  <input type="text" value={editForm.name} onChange={(e) => setEditForm((p) => ({ ...p, name: e.target.value }))} />
+                </label>
+                <label className="field-card">
+                  <span className="field-label">Email</span>
+                  <input type="email" value={editForm.email} onChange={(e) => setEditForm((p) => ({ ...p, email: e.target.value }))} />
+                </label>
+                <label className="field-card">
+                  <span className="field-label">Role</span>
+                  <select value={editForm.roleCode} onChange={(e) => setEditForm((p) => ({ ...p, roleCode: e.target.value }))}>
+                    {availableRoles.length > 0
+                      ? availableRoles.map((r) => <option key={r.id} value={r.code}>{r.name}</option>)
+                      : <><option value="admin">Administrator</option><option value="analyst">Analyst</option><option value="uploader">Uploader</option></>
+                    }
+                  </select>
+                </label>
+                <label className="field-card">
+                  <span className="field-label">Status</span>
+                  <select value={editForm.status} onChange={(e) => setEditForm((p) => ({ ...p, status: e.target.value }))}>
+                    <option value="active">Active</option>
+                    <option value="suspended">Suspended</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </label>
+                <div className="field-card field-card-wide" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+                  <span className="field-label" style={{ marginBottom: 4, display: 'block' }}>Admin password reset</span>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    onClick={() => openDialog({ title: `Reset ${editingUser.name}'s password`, description: 'Send a password reset link to this user, or set a temporary password for them.', confirmLabel: 'Send reset link', tone: 'default' })}
+                  >
+                    Reset password
+                  </button>
+                </div>
               </div>
             ) : (
-              <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <th scope="col">Name</th>
-                      <th scope="col">Email</th>
-                      <th scope="col">Role</th>
-                      <th scope="col">Status</th>
-                      <th scope="col">Last login</th>
-                      <th scope="col">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {userItems.map((item) => {
-                      const tone = item.status === 'active' ? 'good' : item.status === 'suspended' ? 'warn' : 'neutral';
-                      const initials = item.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+              <div className="empty-state"><h4>User not found</h4></div>
+            )}
+          </div>
 
-                      return (
-                        <tr key={item.userId}>
-                          <td>
-                            <div className="table-primary-cell">
-                              <strong>{item.name}</strong>
-                            </div>
-                          </td>
-                          <td><span className="table-secondary-copy">{item.email}</span></td>
-                          <td><span className="pill pill-neutral">{item.roleId}</span></td>
-                          <td><span className={`pill pill-${tone}`}>{item.status}</span></td>
-                          <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
-                          <td>
-                            <button className="table-action" type="button" onClick={() => openDialog({ title: item.name, description: `${item.email} • ${item.roleId} • ${item.status}`, confirmLabel: 'Manage user', tone: 'default' })}>
-                              Manage <Icon name="launch" />
-                            </button>
-                          </td>
+          <div className="drawer-footer">
+            <button className="secondary-button" type="button" onClick={closeDrawer}>Cancel</button>
+            <button className="primary-button" type="button" onClick={isInvite ? handleInviteSubmit : handleEditSubmit}>
+              {isInvite ? 'Invite user' : 'Save changes'}
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  function renderUsersPage(): ReactNode {
+    const availableRoles = rolesData.data?.items ?? [];
+    const matrixRoles = roleMatrix.data?.roles ?? [];
+    const matrixPermissions = roleMatrix.data?.permissions ?? [];
+
+    // Group permissions by their category prefix (e.g. 'dashboard', 'users', 'uploads')
+    const permGroups = matrixPermissions.reduce<Record<string, PermissionItem[]>>((acc, p) => {
+      const group = p.code.split('.')[0] ?? 'other';
+      acc[group] = [...(acc[group] ?? []), p];
+      return acc;
+    }, {});
+
+    async function handleTogglePermission(roleId: string, permCode: string, currentCodes: string[]) {
+      const newCodes = currentCodes.includes(permCode)
+        ? currentCodes.filter((c) => c !== permCode)
+        : [...currentCodes, permCode];
+      try {
+        await apiMutate('PUT', `roles/${roleId}/permissions`, { permissionCodes: newCodes });
+        setRoleMatrix((prev) => {
+          if (!prev.data) return prev;
+          return {
+            ...prev,
+            data: { ...prev.data, roles: prev.data.roles.map((r) => r.id === roleId ? { ...r, permissionCodes: newCodes } : r) },
+          };
+        });
+      } catch (err: unknown) {
+        setNotice({ message: err instanceof Error ? err.message : 'Failed to update permissions', tone: 'warn' });
+      }
+    }
+
+    async function handleCreateRole() {
+      if (!newRoleForm.name.trim() || !newRoleForm.code.trim()) {
+        setNotice({ message: 'Role name and code are required', tone: 'warn' }); return;
+      }
+      try {
+        await apiMutate('POST', 'roles', { name: newRoleForm.name.trim(), code: newRoleForm.code.trim(), description: newRoleForm.description.trim() || undefined });
+        setNotice({ message: `Role "${newRoleForm.name}" created`, tone: 'info' });
+        setNewRoleForm({ name: '', code: '', description: '' });
+        setRoleMatrix({ status: 'idle', data: null, error: null });
+      } catch (err: unknown) {
+        setNotice({ message: err instanceof Error ? err.message : 'Failed to create role', tone: 'warn' });
+      }
+    }
+
+    async function handleDeleteRole(roleId: string, roleName: string) {
+      openDialog({
+        title: `Delete "${roleName}"`,
+        description: `This role will be permanently removed. All users must be reassigned first.`,
+        confirmLabel: 'Delete role',
+        tone: 'danger',
+      });
+    }
+
+    return (
+      <>
+        {renderUserDrawer()}
+
+        <div className="settings-page">
+          <div className="settings-page-header">
+            <h2>Team</h2>
+            <p>Manage admin accounts, roles, and access permissions</p>
+          </div>
+
+          <div className="customer-tab-bar" role="tablist">
+            <button role="tab" aria-selected={usersTab === 'admins'} className={usersTab === 'admins' ? 'customer-tab customer-tab-active' : 'customer-tab'} onClick={() => setUsersTab('admins')}>
+              Admins
+            </button>
+            <button role="tab" aria-selected={usersTab === 'roles'} className={usersTab === 'roles' ? 'customer-tab customer-tab-active' : 'customer-tab'} onClick={() => setUsersTab('roles')}>
+              Roles &amp; Permissions
+            </button>
+          </div>
+
+          {usersTab === 'admins' ? (
+            <section className="panel table-panel">
+              <div className="panel-header">
+                <div>
+                  <h3>Administrators</h3>
+                  <p className="eyebrow">{formatCount(userItems.length)} accounts</p>
+                </div>
+                <div className="panel-header-actions">
+                  <button className="primary-button" type="button" onClick={() => setUserDrawer({ mode: 'invite' })}>
+                    <Icon name="plus" /> Invite user
+                  </button>
+                </div>
+              </div>
+
+              {usersOverview.status === 'loading' && userItems.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon"><Icon name="refresh" /></div>
+                  <h4>Loading team</h4>
+                  <p>Fetching admin accounts from the API.</p>
+                </div>
+              ) : usersOverview.status === 'error' ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon"><Icon name="alert" /></div>
+                  <h4>Failed to load users</h4>
+                  <p>{usersOverview.error}</p>
+                </div>
+              ) : userItems.length === 0 ? (
+                <div className="empty-state">
+                  <div className="empty-state-icon"><Icon name="users" /></div>
+                  <h4>No users found</h4>
+                  <p>Invite a user to get started.</p>
+                </div>
+              ) : (
+                <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <th scope="col">Name</th>
+                        <th scope="col">Email</th>
+                        <th scope="col">Role</th>
+                        <th scope="col">Status</th>
+                        <th scope="col">Last login</th>
+                        <th scope="col">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {userItems.map((item) => {
+                        const tone = item.status === 'active' ? 'good' : item.status === 'suspended' ? 'warn' : 'neutral';
+                        return (
+                          <tr key={item.id}>
+                            <td>
+                              <div className="table-primary-cell">
+                                <strong>{item.name}</strong>
+                              </div>
+                            </td>
+                            <td><span className="table-secondary-copy">{item.email}</span></td>
+                            <td><span className="pill pill-neutral">{item.roleName ?? item.roleId}</span></td>
+                            <td><span className={`pill pill-${tone}`}>{item.status}</span></td>
+                            <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
+                            <td>
+                              <button
+                                className="table-action"
+                                type="button"
+                                onClick={() => {
+                                  setEditForm({ name: item.name, email: item.email, roleCode: item.roleCode ?? '', status: item.status });
+                                  setUserDrawer({ mode: 'edit', userId: item.id });
+                                }}
+                              >
+                                Edit <Icon name="edit" />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          ) : (
+            <>
+              {/* Create role card */}
+              <section className="panel">
+                <div className="panel-header">
+                  <div><h3>Create Custom Role</h3></div>
+                </div>
+                <div className="form-grid" style={{ padding: '0 18px 18px' }}>
+                  <label className="field-card">
+                    <span className="field-label">Role Name</span>
+                    <input type="text" value={newRoleForm.name} onChange={(e) => setNewRoleForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Compliance Officer" />
+                  </label>
+                  <label className="field-card">
+                    <span className="field-label">Code (lowercase, underscores)</span>
+                    <input type="text" value={newRoleForm.code} onChange={(e) => setNewRoleForm((p) => ({ ...p, code: e.target.value.toLowerCase().replace(/[^a-z_]/g, '') }))} placeholder="e.g. compliance_officer" />
+                  </label>
+                  <label className="field-card field-card-wide">
+                    <span className="field-label">Description (optional)</span>
+                    <input type="text" value={newRoleForm.description} onChange={(e) => setNewRoleForm((p) => ({ ...p, description: e.target.value }))} placeholder="Brief description of this role's purpose" />
+                  </label>
+                </div>
+                <div className="panel-footer">
+                  <div className="panel-footer-actions">
+                    <button className="primary-button" type="button" onClick={handleCreateRole}>Create role</button>
+                  </div>
+                </div>
+              </section>
+
+              {/* Permission matrix */}
+              <section className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Role Permissions</h3>
+                    <p className="eyebrow">{formatCount(matrixRoles.length)} roles • {formatCount(matrixPermissions.length)} permissions</p>
+                  </div>
+                </div>
+
+                {roleMatrix.status === 'loading' ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon"><Icon name="refresh" /></div>
+                    <h4>Loading permissions</h4>
+                    <p>Fetching role permissions matrix.</p>
+                  </div>
+                ) : roleMatrix.status === 'error' ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon"><Icon name="alert" /></div>
+                    <h4>Failed to load matrix</h4>
+                    <p>{roleMatrix.error}</p>
+                  </div>
+                ) : matrixRoles.length === 0 ? (
+                  <div className="empty-state">
+                    <div className="empty-state-icon"><Icon name="shield" /></div>
+                    <h4>No roles found</h4>
+                  </div>
+                ) : (
+                  <div className="table-scroll">
+                    <table className="data-table perm-matrix">
+                      <thead>
+                        <tr>
+                          <th scope="col" className="perm-col-label">Permission</th>
+                          {matrixRoles.map((role) => (
+                            <th key={role.id} scope="col" className="perm-col-role">
+                              <div className="perm-role-header">
+                                <span>{role.name}</span>
+                                {!role.isSystem && (
+                                  <button className="perm-delete-role" type="button" onClick={() => handleDeleteRole(role.id, role.name)} aria-label={`Delete ${role.name} role`} title="Delete role">
+                                    <Icon name="x" />
+                                  </button>
+                                )}
+                              </div>
+                            </th>
+                          ))}
                         </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        ) : (
-          <section className="panel">
-            <div className="panel-header">
-              <div>
-                <h3>Roles &amp; Permissions</h3>
-                <p className="eyebrow">{formatCount(roles.length)} roles configured</p>
-              </div>
-            </div>
-            {roles.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon"><Icon name="shield" /></div>
-                <h4>No roles found</h4>
-                <p>Roles will appear here once users are assigned.</p>
-              </div>
-            ) : (
-              <div className="inline-note-grid">
-                {roles.map((role) => {
-                  const activeCount = role.members.filter((m) => m.status === 'active').length;
-
-                  return (
-                    <article key={role.roleId} className="inline-note-card">
-                      <strong style={{ textTransform: 'capitalize' }}>{role.roleId.replace(/_/g, ' ')}</strong>
-                      <p>{formatCount(role.members.length)} member{role.members.length !== 1 ? 's' : ''} • {formatCount(activeCount)} active</p>
-                      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-                        {role.members.slice(0, 4).map((m) => (
-                          <span key={m.userId} className="pill pill-neutral" style={{ fontSize: 11 }}>{m.name}</span>
+                      </thead>
+                      <tbody>
+                        {Object.entries(permGroups).sort(([a], [b]) => a.localeCompare(b)).map(([group, perms]) => (
+                          <>
+                            <tr key={`group-${group}`} className="perm-group-row">
+                              <td colSpan={matrixRoles.length + 1} className="perm-group-label">{group}</td>
+                            </tr>
+                            {perms.map((perm) => (
+                              <tr key={perm.id}>
+                                <td className="perm-col-label">
+                                  <span className="perm-code">{perm.code.split('.').slice(1).join('.')}</span>
+                                  {perm.description ? <span className="table-secondary-copy">{perm.description}</span> : null}
+                                </td>
+                                {matrixRoles.map((role) => {
+                                  const checked = role.permissionCodes.includes(perm.code);
+                                  return (
+                                    <td key={role.id} className="perm-col-check">
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        onChange={() => handleTogglePermission(role.id, perm.code, role.permissionCodes)}
+                                        aria-label={`${role.name}: ${perm.code}`}
+                                      />
+                                    </td>
+                                  );
+                                })}
+                              </tr>
+                            ))}
+                          </>
                         ))}
-                        {role.members.length > 4 ? <span className="pill pill-neutral" style={{ fontSize: 11 }}>+{role.members.length - 4} more</span> : null}
-                      </div>
-                    </article>
-                  );
-                })}
-              </div>
-            )}
-          </section>
-        )}
-      </div>
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            </>
+          )}
+        </div>
+      </>
     );
   }
 
@@ -3341,6 +3687,39 @@ function App() {
       { id: 'notifications', label: 'Notifications' },
     ];
 
+    async function handleSaveProfile() {
+      const name = [profileForm.firstName || 'Victor', profileForm.lastName || 'Adeniyi'].filter(Boolean).join(' ');
+      const email = profileForm.email || 'victor.a@credpal.com';
+      try {
+        await apiMutate('PATCH', 'users/me', { name, email });
+        setNotice({ message: 'Profile updated successfully', tone: 'info' });
+      } catch (err: unknown) {
+        setNotice({ message: err instanceof Error ? err.message : 'Failed to save profile', tone: 'warn' });
+      }
+    }
+
+    async function handleChangePassword() {
+      if (!securityForm.currentPassword) {
+        setNotice({ message: 'Current password is required', tone: 'warn' }); return;
+      }
+      if (securityForm.newPassword.length < 8) {
+        setNotice({ message: 'New password must be at least 8 characters', tone: 'warn' }); return;
+      }
+      if (securityForm.newPassword !== securityForm.confirmPassword) {
+        setNotice({ message: 'New passwords do not match', tone: 'warn' }); return;
+      }
+      try {
+        await apiMutate('PATCH', 'users/me/password', { currentPassword: securityForm.currentPassword, newPassword: securityForm.newPassword });
+        setSecurityForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+        setShowCurrentPwd(false);
+        setShowNewPwd(false);
+        setShowConfirmPwd(false);
+        setNotice({ message: 'Password changed successfully', tone: 'info' });
+      } catch (err: unknown) {
+        setNotice({ message: err instanceof Error ? err.message : 'Failed to change password', tone: 'warn' });
+      }
+    }
+
     return (
       <div className="settings-page">
         <div className="settings-page-header">
@@ -3351,12 +3730,7 @@ function App() {
         <div className="settings-layout">
           <nav className="settings-nav" aria-label="Settings navigation">
             {tabs.map((tab) => (
-              <button
-                key={tab.id}
-                className={settingsTab === tab.id ? 'settings-nav-button settings-nav-button-active' : 'settings-nav-button'}
-                type="button"
-                onClick={() => setSettingsTab(tab.id)}
-              >
+              <button key={tab.id} className={settingsTab === tab.id ? 'settings-nav-button settings-nav-button-active' : 'settings-nav-button'} type="button" onClick={() => setSettingsTab(tab.id)}>
                 {tab.label}
               </button>
             ))}
@@ -3374,48 +3748,28 @@ function App() {
                 <div className="form-grid" style={{ padding: '0 18px 18px' }}>
                   <label className="field-card">
                     <span className="field-label">First Name</span>
-                    <input
-                      type="text"
-                      value={profileForm.firstName || 'Victor'}
-                      onChange={(e) => setProfileForm((prev) => ({ ...prev, firstName: e.target.value }))}
-                      placeholder="First name"
-                    />
+                    <input type="text" value={profileForm.firstName || 'Victor'} onChange={(e) => setProfileForm((p) => ({ ...p, firstName: e.target.value }))} placeholder="First name" autoComplete="given-name" />
                   </label>
                   <label className="field-card">
                     <span className="field-label">Last Name</span>
-                    <input
-                      type="text"
-                      value={profileForm.lastName || 'Adeniyi'}
-                      onChange={(e) => setProfileForm((prev) => ({ ...prev, lastName: e.target.value }))}
-                      placeholder="Last name"
-                    />
+                    <input type="text" value={profileForm.lastName || 'Adeniyi'} onChange={(e) => setProfileForm((p) => ({ ...p, lastName: e.target.value }))} placeholder="Last name" autoComplete="family-name" />
                   </label>
                   <label className="field-card field-card-wide">
                     <span className="field-label">Email</span>
-                    <input
-                      type="email"
-                      value={profileForm.email || 'victor.a@credpal.com'}
-                      onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
-                      placeholder="Email address"
-                    />
+                    <input type="email" value={profileForm.email || 'victor.a@credpal.com'} onChange={(e) => setProfileForm((p) => ({ ...p, email: e.target.value }))} placeholder="Email address" autoComplete="email" />
                   </label>
                   <label className="field-card">
                     <span className="field-label">User Type</span>
-                    <select
-                      value={profileForm.userType || 'Admin'}
-                      onChange={(e) => setProfileForm((prev) => ({ ...prev, userType: e.target.value }))}
-                    >
+                    <select value={profileForm.userType || 'Admin'} onChange={(e) => setProfileForm((p) => ({ ...p, userType: e.target.value }))}>
                       <option value="Admin">Admin</option>
                       <option value="Analyst">Analyst</option>
-                      <option value="Viewer">Viewer</option>
+                      <option value="Uploader">Uploader</option>
                     </select>
                   </label>
                 </div>
                 <div className="panel-footer">
                   <div className="panel-footer-actions">
-                    <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Save profile', description: 'Update your profile information. Changes will be reflected immediately.', confirmLabel: 'Save changes', tone: 'default' })}>
-                      Save changes
-                    </button>
+                    <button className="primary-button" type="button" onClick={handleSaveProfile}>Save changes</button>
                   </div>
                 </div>
               </section>
@@ -3430,40 +3784,29 @@ function App() {
                 <div className="form-grid" style={{ padding: '0 18px 18px' }}>
                   <label className="field-card field-card-wide">
                     <span className="field-label">Current Password</span>
-                    <input
-                      type="password"
-                      value={securityForm.currentPassword}
-                      onChange={(e) => setSecurityForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
-                      placeholder="Enter current password"
-                      autoComplete="current-password"
-                    />
+                    <div className="password-input-shell">
+                      <input type={showCurrentPwd ? 'text' : 'password'} value={securityForm.currentPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, currentPassword: e.target.value }))} placeholder="Enter current password" autoComplete="current-password" />
+                      <button type="button" className="password-toggle" onClick={() => setShowCurrentPwd((p) => !p)} aria-label={showCurrentPwd ? 'Hide' : 'Show'}><Icon name={showCurrentPwd ? 'eye-off' : 'eye'} /></button>
+                    </div>
                   </label>
                   <label className="field-card">
                     <span className="field-label">New Password</span>
-                    <input
-                      type="password"
-                      value={securityForm.newPassword}
-                      onChange={(e) => setSecurityForm((prev) => ({ ...prev, newPassword: e.target.value }))}
-                      placeholder="Enter new password"
-                      autoComplete="new-password"
-                    />
+                    <div className="password-input-shell">
+                      <input type={showNewPwd ? 'text' : 'password'} value={securityForm.newPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, newPassword: e.target.value }))} placeholder="Min. 8 characters" autoComplete="new-password" />
+                      <button type="button" className="password-toggle" onClick={() => setShowNewPwd((p) => !p)} aria-label={showNewPwd ? 'Hide' : 'Show'}><Icon name={showNewPwd ? 'eye-off' : 'eye'} /></button>
+                    </div>
                   </label>
                   <label className="field-card">
                     <span className="field-label">Confirm New Password</span>
-                    <input
-                      type="password"
-                      value={securityForm.confirmPassword}
-                      onChange={(e) => setSecurityForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
-                      placeholder="Confirm new password"
-                      autoComplete="new-password"
-                    />
+                    <div className="password-input-shell">
+                      <input type={showConfirmPwd ? 'text' : 'password'} value={securityForm.confirmPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Repeat new password" autoComplete="new-password" />
+                      <button type="button" className="password-toggle" onClick={() => setShowConfirmPwd((p) => !p)} aria-label={showConfirmPwd ? 'Hide' : 'Show'}><Icon name={showConfirmPwd ? 'eye-off' : 'eye'} /></button>
+                    </div>
                   </label>
                 </div>
                 <div className="panel-footer">
                   <div className="panel-footer-actions">
-                    <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Change password', description: 'Your password will be updated. You will need to use the new password on your next login.', confirmLabel: 'Change password', tone: 'default' })}>
-                      Change Password
-                    </button>
+                    <button className="primary-button" type="button" onClick={handleChangePassword}>Change Password</button>
                   </div>
                 </div>
               </section>

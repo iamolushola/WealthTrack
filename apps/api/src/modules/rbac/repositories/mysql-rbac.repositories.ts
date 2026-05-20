@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { PermissionRow, RolePermissionRow, RoleRow } from '@wealthtrack/shared-types';
 import { MysqlService } from '../../../persistence/mysql/mysql.service';
 import { PermissionRepository, RolePermissionRepository, RoleRepository } from '../interfaces/rbac.repositories';
+import { createId } from '../../../common/utils/ids';
 
 @Injectable()
 export class MysqlRoleRepository implements RoleRepository {
@@ -17,6 +18,32 @@ export class MysqlRoleRepository implements RoleRepository {
 
   findByCode(code: string): Promise<RoleRow | null> {
     return this.mysql.selectOne<RoleRow>('SELECT * FROM roles WHERE code = ? LIMIT 1', [code]);
+  }
+
+  async create(role: RoleRow): Promise<void> {
+    await this.mysql.execute(
+      'INSERT INTO roles (id, code, name, description, created_at) VALUES (?, ?, ?, ?, UTC_TIMESTAMP(3))',
+      [role.id, role.code, role.name, role.description ?? null],
+    );
+  }
+
+  async update(role: RoleRow): Promise<void> {
+    await this.mysql.execute(
+      'UPDATE roles SET name = ?, description = ? WHERE id = ?',
+      [role.name, role.description ?? null, role.id],
+    );
+  }
+
+  async deleteById(id: string): Promise<void> {
+    await this.mysql.execute('DELETE FROM roles WHERE id = ?', [id]);
+  }
+
+  async countUsersByRoleId(roleId: string): Promise<number> {
+    const row = await this.mysql.selectOne<{ total: number }>(
+      'SELECT COUNT(*) AS total FROM users WHERE role_id = ? AND deleted_at IS NULL',
+      [roleId],
+    );
+    return row?.total ?? 0;
   }
 }
 
@@ -36,6 +63,15 @@ export class MysqlPermissionRepository implements PermissionRepository {
     const placeholders = codes.map(() => '?').join(', ');
     return this.mysql.selectMany<PermissionRow>(`SELECT * FROM permissions WHERE code IN (${placeholders})`, codes);
   }
+
+  findByIds(ids: string[]): Promise<PermissionRow[]> {
+    if (ids.length === 0) {
+      return Promise.resolve([]);
+    }
+
+    const placeholders = ids.map(() => '?').join(', ');
+    return this.mysql.selectMany<PermissionRow>(`SELECT * FROM permissions WHERE id IN (${placeholders})`, ids);
+  }
 }
 
 @Injectable()
@@ -49,12 +85,11 @@ export class MysqlRolePermissionRepository implements RolePermissionRepository {
   async replaceRolePermissions(roleId: string, permissionIds: string[]): Promise<void> {
     await this.mysql.execute('DELETE FROM role_permissions WHERE role_id = ?', [roleId]);
     await Promise.all(
-      permissionIds.map((permissionId, index) =>
-        this.mysql.execute('INSERT INTO role_permissions (id, role_id, permission_id, created_at) VALUES (?, ?, ?, UTC_TIMESTAMP(3))', [
-          `${roleId}-${index}`.slice(0, 36),
-          roleId,
-          permissionId,
-        ]),
+      permissionIds.map((permissionId) =>
+        this.mysql.execute(
+          'INSERT INTO role_permissions (id, role_id, permission_id, created_at) VALUES (?, ?, ?, UTC_TIMESTAMP(3))',
+          [createId(), roleId, permissionId],
+        ),
       ),
     );
   }

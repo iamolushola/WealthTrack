@@ -8,4 +8,8 @@ export class UpdateUserRequestDto {
   @IsOptional()
   @IsEmail()
   email?: string;
+
+  @IsOptional()
+  @IsString()
+  roleCode?: string;
 }

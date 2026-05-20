@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { UsersPolicy } from './policies/users.policy';
 import { CreateUserRequestDto } from './dto/requests/create-user.request.dto';
@@ -8,7 +8,7 @@ import { UpdateUserStatusRequestDto } from './dto/requests/update-user-status.re
 import { MysqlUserRepository } from './repositories/mysql-user.repository';
 import { MysqlRoleRepository } from '../rbac/repositories/mysql-rbac.repositories';
 import { createId, nowIso } from '../../common/utils/ids';
-import { hashPassword } from '../../common/utils/password';
+import { hashPassword, verifyPassword } from '../../common/utils/password';
 import { UserRow } from '@wealthtrack/shared-types';
 
 function sanitizeUser(user: UserRow): Omit<UserRow, 'passwordHash'> {
@@ -94,10 +94,18 @@ export class UsersService {
       }
     }
 
+    let roleId = user.roleId;
+    if (payload.roleCode) {
+      const role = await this.roleRepository.findByCode(payload.roleCode);
+      if (!role) throw new NotFoundException('Role not found');
+      roleId = role.id;
+    }
+
     const updatedUser: UserRow = {
       ...user,
       name: payload.name ?? user.name,
       email: payload.email ?? user.email,
+      roleId,
       updatedAt: nowIso(),
       updatedBy: actor.actorId,
     };
@@ -113,15 +121,52 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
+    // Admin resetting another user's password — no current-password check
+    // Self-service path goes through updateMyPassword instead
     const updatedUser: UserRow = {
       ...user,
-      passwordHash: hashPassword(payload.password),
+      passwordHash: hashPassword(payload.newPassword),
       updatedAt: nowIso(),
       updatedBy: actor.actorId,
     };
 
     await this.usersRepository.update(updatedUser);
     return { id: user.id, message: 'Password updated successfully' };
+  }
+
+  async updateMyPassword(payload: UpdateUserPasswordRequestDto, actor: AuthenticatedActor): Promise<object> {
+    this.usersPolicy.assertCanManage(actor, 'users.update');
+    const user = await this.usersRepository.findById(actor.actorId);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (!verifyPassword(payload.currentPassword, user.passwordHash)) {
+      throw new ForbiddenException('Current password is incorrect');
+    }
+
+    const updatedUser: UserRow = {
+      ...user,
+      passwordHash: hashPassword(payload.newPassword),
+      updatedAt: nowIso(),
+      updatedBy: actor.actorId,
+    };
+
+    await this.usersRepository.update(updatedUser);
+    return { id: user.id, message: 'Password updated successfully' };
+  }
+
+  async getMe(actor: AuthenticatedActor): Promise<object> {
+    this.usersPolicy.assertCanRead(actor);
+    const user = await this.usersRepository.findById(actor.actorId);
+    if (!user) {
+      throw new NotFoundException('User profile not found');
+    }
+    return sanitizeUser(user);
+  }
+
+  async updateMe(payload: UpdateUserRequestDto, actor: AuthenticatedActor): Promise<object> {
+    return this.update(actor.actorId, payload, actor);
   }
 
   async changeStatus(id: string, payload: UpdateUserStatusRequestDto, actor: AuthenticatedActor): Promise<object> {

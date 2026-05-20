@@ -15,6 +15,24 @@ export class UsersController {
   constructor(private readonly usersService: UsersService) {}
 
   @RequirePermissions('users.read')
+  @Get('me')
+  async getMe(@CurrentActor() actor: AuthenticatedActor): Promise<object> {
+    return this.usersService.getMe(actor);
+  }
+
+  @RequirePermissions('users.update')
+  @Patch('me')
+  async updateMe(@Body() payload: UpdateUserRequestDto, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
+    return this.usersService.updateMe(payload, actor);
+  }
+
+  @RequirePermissions('users.update')
+  @Patch('me/password')
+  async updateMyPassword(@Body() payload: UpdateUserPasswordRequestDto, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
+    return this.usersService.updateMyPassword(payload, actor);
+  }
+
+  @RequirePermissions('users.read')
   @Get()
   async list(@CurrentActor() actor: AuthenticatedActor): Promise<object> {
     return this.usersService.list(actor);
