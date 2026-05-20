@@ -10,17 +10,22 @@ export class InvestmentsService {
     private readonly investmentRecordRepository: MysqlInvestmentRecordRepository,
   ) {}
 
-  async list(actor: AuthenticatedActor, limit = 50, cursor?: string): Promise<object> {
+  async list(actor: AuthenticatedActor, page = 1, pageSize = 50): Promise<object> {
     this.investmentsPolicy.assertCanReadLedger(actor);
-    const items = await this.investmentRecordRepository.findAll(cursor, limit);
-    const nextCursor = items.length === limit ? (items[items.length - 1]?.id ?? null) : null;
+    const offset = (page - 1) * pageSize;
+    const [items, totalItems] = await Promise.all([
+      this.investmentRecordRepository.findAllPaged(offset, pageSize),
+      this.investmentRecordRepository.count(),
+    ]);
     const totalInvestment = items.reduce((sum, r) => sum + Number(r.investmentAmount), 0);
     const confirmedValidCount = items.filter((r) => r.recordStatus === 'valid' && r.importStatus === 'confirmed').length;
 
     return {
       items,
-      count: items.length,
-      nextCursor,
+      page,
+      pageSize,
+      totalItems,
+      totalPages: Math.ceil(totalItems / pageSize),
       summary: {
         recordCount: items.length,
         totalInvestment,

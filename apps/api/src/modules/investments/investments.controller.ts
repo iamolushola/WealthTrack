@@ -14,10 +14,12 @@ export class InvestmentsController {
   @Get()
   async list(
     @CurrentActor() actor: AuthenticatedActor,
-    @Query('limit') limit?: string,
-    @Query('cursor') cursor?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
   ): Promise<object> {
-    return this.investmentsService.list(actor, limit ? Math.min(Number(limit), 200) : 50, cursor);
+    const p = Math.max(1, Number(page) || 1);
+    const ps = Math.min(200, Math.max(10, Number(pageSize) || 50));
+    return this.investmentsService.list(actor, p, ps);
   }
 
   @RequirePermissions('dashboard.summary.read')

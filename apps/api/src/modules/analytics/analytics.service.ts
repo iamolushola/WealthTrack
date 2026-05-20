@@ -262,7 +262,7 @@ export class AnalyticsService {
     };
   }
 
-  async customerPortfolio(): Promise<object> {
+  async customerPortfolio(page = 1, pageSize = 25): Promise<object> {
     const investments = await this.analyticsInvestmentRepository.listConfirmedValid();
     const totalInvestmentAll = investments.reduce((s, r) => s + Number(r.investmentAmount), 0);
 
@@ -309,7 +309,7 @@ export class AnalyticsService {
       byCustomer.set(record.customerId, existing);
     }
 
-    const items = Array.from(byCustomer.entries())
+    const allItems = Array.from(byCustomer.entries())
       .sort(([, a], [, b]) => b.totalInvestment - a.totalInvestment)
       .map(([customerId, acc]) => ({
         customerId,
@@ -325,7 +325,11 @@ export class AnalyticsService {
         tenorExposure: acc.tenorExposure,
       }));
 
-    return { items };
+    const totalItems = allItems.length;
+    const offset = (page - 1) * pageSize;
+    const items = allItems.slice(offset, offset + pageSize);
+
+    return { items, page, pageSize, totalItems, totalPages: Math.ceil(totalItems / pageSize) };
   }
 
   async customerPortfolioDetail(customerId: string): Promise<object> {

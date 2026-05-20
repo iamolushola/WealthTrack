@@ -174,6 +174,10 @@ type PortfolioCustomer = {
 
 type CustomerPortfolioOverview = {
   items: PortfolioCustomer[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
 };
 
 type InvestmentRecordItem = {
@@ -201,8 +205,10 @@ type InvestmentRecordItem = {
 
 type InvestmentsOverview = {
   items: InvestmentRecordItem[];
-  count: number;
-  nextCursor: string | null;
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
   summary: {
     recordCount: number;
     totalInvestment: number;
@@ -1025,6 +1031,55 @@ function buildReportTrendData(items: ReportExportItem[], range: RangeOption): Ar
   });
 }
 
+// ── Paginator ────────────────────────────────────────────────────────────────
+
+interface PaginatorProps {
+  page: number;
+  totalPages: number;
+  totalItems: number;
+  pageSize: number;
+  isLoading: boolean;
+  onPageChange: (page: number) => void;
+}
+
+function Paginator({ page, totalPages, totalItems, pageSize, isLoading, onPageChange }: PaginatorProps): ReactNode {
+  function buildChips(): Array<number | 'ellipsis'> {
+    const chips: Array<number | 'ellipsis'> = [];
+    const add = (n: number) => { if (!chips.includes(n)) chips.push(n); };
+    add(1);
+    if (page > 3) chips.push('ellipsis');
+    if (page > 2) add(page - 1);
+    add(page);
+    if (page < totalPages - 1) add(page + 1);
+    if (page < totalPages - 2) chips.push('ellipsis');
+    if (totalPages > 1) add(totalPages);
+    return chips;
+  }
+
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(page * pageSize, totalItems);
+  const chips = buildChips();
+
+  return (
+    <div className="customer-pagination">
+      <span>
+        {isLoading ? 'Loading…' : totalItems > 0 ? `Showing ${from}–${to} of ${totalItems}` : '0 records'}
+      </span>
+      {totalPages > 1 && (
+        <div>
+          <button type="button" disabled={page <= 1 || isLoading} onClick={() => onPageChange(page - 1)} aria-label="Previous page">Prev</button>
+          {chips.map((chip, i) =>
+            chip === 'ellipsis'
+              ? <span key={`e${i}`} className="pagination-ellipsis">…</span>
+              : <button key={chip} type="button" className={chip === page ? 'page-chip-active' : undefined} aria-current={chip === page ? 'page' : undefined} disabled={isLoading} onClick={() => onPageChange(chip)}>{chip}</button>
+          )}
+          <button type="button" disabled={page >= totalPages || isLoading} onClick={() => onPageChange(page + 1)} aria-label="Next page">Next</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function App() {
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
     Dashboards: false,
@@ -1043,7 +1098,8 @@ function App() {
   });
   const [selectedUploadName, setSelectedUploadName] = useState('');
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0);
-  const [isLoadingMoreInvestments, setIsLoadingMoreInvestments] = useState(false);
+  const [portfolioPage, setPortfolioPage] = useState(1);
+  const [investmentsPage, setInvestmentsPage] = useState(1);
   const [reportsOverview, setReportsOverview] = useState<ReportsOverviewState>({
     status: 'idle',
     items: [],
@@ -1336,14 +1392,14 @@ function App() {
   }, [currentView, trendsFrom, trendsTo]);
 
   useEffect(() => {
-    if (currentView !== 'portfolio' || portfolioOverview.status !== 'idle') {
+    if (currentView !== 'portfolio') {
       return undefined;
     }
 
     let cancelled = false;
     setPortfolioOverview({ status: 'loading', data: null, error: null });
 
-    void fetchViewData<CustomerPortfolioOverview>('dashboard/customer-portfolio')
+    void fetchViewData<CustomerPortfolioOverview>(`dashboard/customer-portfolio?page=${portfolioPage}&pageSize=25`)
       .then((data) => {
         if (!cancelled) {
           setPortfolioOverview({ status: 'ready', data, error: null });
@@ -1363,17 +1419,17 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
+  }, [currentView, portfolioPage]);
 
   useEffect(() => {
-    if (currentView !== 'investments' || investmentsOverview.status !== 'idle') {
+    if (currentView !== 'investments') {
       return undefined;
     }
 
     let cancelled = false;
     setInvestmentsOverview({ status: 'loading', data: null, error: null });
 
-    void fetchViewData<InvestmentsOverview>('investments?limit=50')
+    void fetchViewData<InvestmentsOverview>(`investments?page=${investmentsPage}&pageSize=50`)
       .then((data) => {
         if (!cancelled) {
           setInvestmentsOverview({ status: 'ready', data, error: null });
@@ -1393,7 +1449,7 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
+  }, [currentView, investmentsPage]);
 
   useEffect(() => {
     if (currentView !== 'wealth-managers' || wealthManagersOverview.status !== 'idle') {
@@ -1766,9 +1822,9 @@ function App() {
         {
           label: 'Visible Page',
           value: formatCount(investmentItems.length),
-          helper: 'Latest records loaded',
+          helper: 'Records on current page',
           tone: 'neutral',
-          delta: investmentsOverview.data?.nextCursor ? 'More records available' : 'End of current result set',
+          delta: investmentsOverview.data ? `Page ${investmentsOverview.data.page} of ${investmentsOverview.data.totalPages}` : 'Loading',
           icon: 'database',
         },
         {
@@ -2279,38 +2335,6 @@ function App() {
     setReportsRefreshKey((current) => current + 1);
   }
 
-  async function loadMoreInvestments(): Promise<void> {
-    const cursor = investmentsOverview.data?.nextCursor;
-
-    if (!cursor || isLoadingMoreInvestments) {
-      return;
-    }
-
-    setIsLoadingMoreInvestments(true);
-
-    try {
-      const data = await fetchViewData<InvestmentsOverview>(`investments?limit=50&cursor=${encodeURIComponent(cursor)}`);
-      setInvestmentsOverview((current) => ({
-        status: 'ready',
-        data: {
-          items: [...(current.data?.items ?? []), ...data.items],
-          count: data.count,
-          nextCursor: data.nextCursor,
-          summary: data.summary,
-        },
-        error: null,
-      }));
-    } catch (error) {
-      setInvestmentsOverview((current) => ({
-        status: 'error',
-        data: current.data,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      }));
-    } finally {
-      setIsLoadingMoreInvestments(false);
-    }
-  }
-
   function openDialog(intent: DialogIntent): void {
     setDialogIntent(intent);
   }
@@ -2495,12 +2519,14 @@ function App() {
                 </tbody>
               </table>
             </div>
-            <div className="customer-pagination">
-              <span>Loaded {investmentItems.length} of {formatCount(investmentsOverview.data?.count)} investment records</span>
-              <button type="button" disabled={!investmentsOverview.data?.nextCursor || isLoadingMoreInvestments} onClick={loadMoreInvestments}>
-                {isLoadingMoreInvestments ? 'Loading...' : investmentsOverview.data?.nextCursor ? 'Load more' : 'All records loaded'}
-              </button>
-            </div>
+            <Paginator
+              page={investmentsPage}
+              totalPages={investmentsOverview.data?.totalPages ?? 1}
+              totalItems={investmentsOverview.data?.totalItems ?? 0}
+              pageSize={50}
+              isLoading={investmentsOverview.status === 'loading'}
+              onPageChange={setInvestmentsPage}
+            />
           </>
         )}
       </section>
@@ -2778,15 +2804,14 @@ function App() {
           </div>
         )}
 
-        <div className="customer-pagination">
-          <span>Showing {filteredCustomers.length} of {portfolioItems.length} ranked customers</span>
-          <div>
-            <button type="button" disabled>Prev</button>
-            <button className="page-chip-active" type="button">1</button>
-            <button type="button">2</button>
-            <button type="button">Next</button>
-          </div>
-        </div>
+        <Paginator
+          page={portfolioPage}
+          totalPages={portfolioOverview.data?.totalPages ?? 1}
+          totalItems={portfolioOverview.data?.totalItems ?? portfolioItems.length}
+          pageSize={25}
+          isLoading={portfolioOverview.status === 'loading'}
+          onPageChange={setPortfolioPage}
+        />
       </section>
     );
   }

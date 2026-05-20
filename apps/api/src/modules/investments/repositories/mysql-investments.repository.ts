@@ -21,6 +21,21 @@ export class MysqlInvestmentRecordRepository implements InvestmentRecordReposito
     );
   }
 
+  findAllPaged(offset: number, limit: number): Promise<InvestmentRecordRow[]> {
+    return this.mysql.selectMany<InvestmentRecordRow>(
+      'SELECT * FROM investment_records ORDER BY mobilisation_date DESC, id ASC LIMIT ? OFFSET ?',
+      [limit, offset],
+    );
+  }
+
+  async count(): Promise<number> {
+    const row = await this.mysql.selectOne<{ total: number }>(
+      'SELECT COUNT(*) AS total FROM investment_records',
+      [],
+    );
+    return row?.total ?? 0;
+  }
+
   findById(id: string): Promise<InvestmentRecordRow | null> {
     return this.mysql.selectOne<InvestmentRecordRow>('SELECT * FROM investment_records WHERE id = ? LIMIT 1', [id]);
   }

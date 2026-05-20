@@ -28,8 +28,13 @@ export class AnalyticsController {
 
   @RequirePermissions('dashboard.customer_portfolio.read')
   @Get('customer-portfolio')
-  async customerPortfolio(): Promise<object> {
-    return this.analyticsService.customerPortfolio();
+  async customerPortfolio(
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ): Promise<object> {
+    const p = Math.max(1, Number(page) || 1);
+    const ps = Math.min(100, Math.max(10, Number(pageSize) || 25));
+    return this.analyticsService.customerPortfolio(p, ps);
   }
 
   @RequirePermissions('dashboard.customer_portfolio.read')
