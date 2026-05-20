@@ -379,8 +379,6 @@ type ViewId =
   | 'wealth-managers'
   | 'uploads'
   | 'reports'
-  | 'audit'
-  | 'integrations'
   | 'users'
   | 'settings';
 
@@ -584,8 +582,6 @@ const navigationItems: NavItem[] = [
   { label: 'Managers', icon: 'users', view: 'wealth-managers' },
   { label: 'Uploads', icon: 'briefcase', view: 'uploads' },
   { label: 'Reports', icon: 'file', view: 'reports' },
-  { label: 'Sync', icon: 'database', view: 'integrations' },
-  { label: 'Audit', icon: 'shield', view: 'audit' },
   { label: 'Team', icon: 'users', view: 'users' },
   { label: 'Settings', icon: 'settings', view: 'settings' },
 ];
@@ -597,11 +593,11 @@ const navigationSections: NavSection[] = [
   },
   {
     title: 'Operations',
-    items: navigationItems.filter((item) => ['uploads', 'reports', 'integrations'].includes(item.view)),
+    items: navigationItems.filter((item) => ['uploads', 'reports'].includes(item.view)),
   },
   {
     title: 'Governance',
-    items: navigationItems.filter((item) => ['audit', 'users'].includes(item.view)),
+    items: navigationItems.filter((item) => item.view === 'users'),
   },
   {
     title: 'System',
@@ -695,30 +691,6 @@ const views: ViewDefinition[] = [
     statusLabel: 'Processing',
   },
   {
-    id: 'audit',
-    label: 'Audit',
-    title: 'Audit',
-    badge: 'Governance',
-    heroTitle: 'Audit trail.',
-    heroDescription: 'Governance records.',
-    actionLabel: 'Export',
-    secondaryActionLabel: 'Critical',
-    periodLabel: '2,418 events',
-    statusLabel: 'Ready',
-  },
-  {
-    id: 'integrations',
-    label: 'Sync',
-    title: 'Sync',
-    badge: 'Sync',
-    heroTitle: 'Integration status.',
-    heroDescription: 'Sync operations.',
-    actionLabel: 'Run Sync',
-    secondaryActionLabel: 'Failures',
-    periodLabel: '96.2% success',
-    statusLabel: 'Live',
-  },
-  {
     id: 'users',
     label: 'Team',
     title: 'Team',
@@ -753,9 +725,7 @@ const panelCopyByView: Record<ViewId, { title: string; description: string }> = 
   'wealth-managers': { title: 'Manager Coaching Notes', description: 'Use the page to flag concentration, customer growth, and recovery opportunities by RM.' },
   uploads: { title: 'Validation Workflow', description: 'The workflow is grouped clearly so operational steps do not collapse into one crowded card.' },
   reports: { title: 'Delivery Controls', description: 'Report scheduling, format, and queue visibility stay grouped in one consistent workbench.' },
-  audit: { title: 'Review Guidance', description: 'Critical events, owners, and retention coverage remain visible during governance review.' },
-  integrations: { title: 'Source Recovery Plan', description: 'Surface retry priorities, mapping concerns, and next sync timing without leaving the page.' },
-  users: { title: 'Access Administration', description: 'Group invite actions, role assignment, and review context in a single maintainable section.' },
+  users: { title: 'Team Management', description: 'Manage admin accounts, roles, and permissions for the platform.' },
   settings: { title: 'Configuration Workspace', description: 'Group related controls into cards with helper text and safer save actions.' },
 };
 
@@ -767,9 +737,7 @@ const emptyStateCopyByView: Record<ViewId, { title: string; description: string 
   'wealth-managers': { title: 'No managers match that search', description: 'Clear the current search to recover the full relationship-manager leaderboard.' },
   uploads: { title: 'No upload records match that search', description: 'Reset the filters to review pending batches and error reports.' },
   reports: { title: 'No report jobs match that search', description: 'Try another keyword to bring queued and completed exports back into view.' },
-  audit: { title: 'No audit entries match that search', description: 'Use a broader term to recover critical and admin events.' },
-  integrations: { title: 'No integration records match that search', description: 'Reset the search to inspect source status and retry candidates.' },
-  users: { title: 'No user groups match that search', description: 'Clear the search to restore role and account segments.' },
+  users: { title: 'No users match that search', description: 'Clear the search to restore the team list.' },
   settings: { title: 'No configuration groups match that search', description: 'Try another keyword or reset the search to restore all setting groups.' },
 };
 
@@ -1100,6 +1068,10 @@ function App() {
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0);
   const [portfolioPage, setPortfolioPage] = useState(1);
   const [investmentsPage, setInvestmentsPage] = useState(1);
+  const [usersTab, setUsersTab] = useState<'admins' | 'roles'>('admins');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'security' | 'config' | 'notifications'>('profile');
+  const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', email: '', userType: '' });
+  const [securityForm, setSecurityForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [reportsOverview, setReportsOverview] = useState<ReportsOverviewState>({
     status: 'idle',
     items: [],
@@ -1125,8 +1097,6 @@ function App() {
       '/wealth-managers': 'wealth-managers',
       '/uploads': 'uploads',
       '/reports': 'reports',
-      '/audit': 'audit',
-      '/integrations': 'integrations',
       '/users': 'users',
       '/settings': 'settings',
     };
@@ -1164,16 +1134,6 @@ function App() {
     error: null,
   });
   const [uploadsOverview, setUploadsOverview] = useState<RequestState<UploadHistoryOverview>>({
-    status: 'idle',
-    data: null,
-    error: null,
-  });
-  const [auditOverview, setAuditOverview] = useState<RequestState<AuditOverview>>({
-    status: 'idle',
-    data: null,
-    error: null,
-  });
-  const [integrationsOverview, setIntegrationsOverview] = useState<RequestState<IntegrationsOverview>>({
     status: 'idle',
     data: null,
     error: null,
@@ -1512,66 +1472,6 @@ function App() {
   }, [currentView]);
 
   useEffect(() => {
-    if (currentView !== 'audit' || auditOverview.status !== 'idle') {
-      return undefined;
-    }
-
-    let cancelled = false;
-    setAuditOverview({ status: 'loading', data: null, error: null });
-
-    void fetchViewData<AuditOverview>('audit-logs')
-      .then((data) => {
-        if (!cancelled) {
-          setAuditOverview({ status: 'ready', data, error: null });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setAuditOverview({
-            status: 'error',
-            data: null,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
-
-  useEffect(() => {
-    if (currentView !== 'integrations' || integrationsOverview.status !== 'idle') {
-      return undefined;
-    }
-
-    let cancelled = false;
-    setIntegrationsOverview({ status: 'loading', data: null, error: null });
-
-    void fetchViewData<IntegrationsOverview>('integrations')
-      .then((data) => {
-        if (!cancelled) {
-          setIntegrationsOverview({ status: 'ready', data, error: null });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setIntegrationsOverview({
-            status: 'error',
-            data: null,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
-
-  useEffect(() => {
     if (currentView !== 'users' || usersOverview.status !== 'idle') {
       return undefined;
     }
@@ -1639,8 +1539,6 @@ function App() {
   const investmentSummary = investmentsOverview.data?.summary;
   const wealthManagerItems = wealthManagersOverview.data?.items ?? [];
   const uploadItems = uploadsOverview.data?.items ?? [];
-  const auditItems = auditOverview.data?.items ?? [];
-  const integrationItems = integrationsOverview.data?.items ?? [];
   const userItems = usersOverview.data?.items ?? [];
   const settingsData = settingsOverview.data;
   const reportItemsInRange = filterReportsByRange(reportsOverview.items, activeRange);
@@ -1939,80 +1837,6 @@ function App() {
       ];
     }
 
-    if (currentView === 'audit') {
-      return [
-        {
-          label: 'Audit Events',
-          value: formatCount(auditItems.length),
-          helper: 'Tracked platform events',
-          tone: 'neutral',
-          delta: auditItems[0] ? `Latest ${formatDateTime(auditItems[0].createdAt)}` : 'Loading live data',
-          icon: 'shield',
-        },
-        {
-          label: 'Failed Actions',
-          value: formatCount(auditItems.filter((item) => item.outcome === 'failed').length),
-          helper: 'Events with failed outcome',
-          tone: 'warn',
-          delta: `${formatCount(auditItems.filter((item) => item.outcome === 'partial_success').length)} partial`,
-          icon: 'alert',
-        },
-        {
-          label: 'User Actions',
-          value: formatCount(auditItems.filter((item) => item.resourceType === 'user').length),
-          helper: 'Access and lifecycle changes',
-          tone: 'neutral',
-          delta: `${formatCount(auditItems.filter((item) => item.resourceType === 'upload_batch').length)} upload actions`,
-          icon: 'users',
-        },
-        {
-          label: 'Exportable Trail',
-          value: auditItems.length > 0 ? 'Ready' : '--',
-          helper: 'Audit trail export readiness',
-          tone: 'good',
-          delta: 'Backed by immutable log records',
-          icon: 'download',
-        },
-      ];
-    }
-
-    if (currentView === 'integrations') {
-      return [
-        {
-          label: 'Sources',
-          value: formatCount(integrationItems.length),
-          helper: 'Configured intake sources',
-          tone: 'neutral',
-          delta: `${formatCount(integrationItems.filter((item) => item.status === 'active').length)} active`,
-          icon: 'database',
-        },
-        {
-          label: 'Failed Sources',
-          value: formatCount(integrationItems.filter((item) => item.status === 'failed').length),
-          helper: 'Sources needing intervention',
-          tone: 'warn',
-          delta: `${formatCount(integrationItems.filter((item) => item.status === 'inactive').length)} inactive`,
-          icon: 'alert',
-        },
-        {
-          label: 'API Feeds',
-          value: formatCount(integrationItems.filter((item) => item.sourceType === 'api').length),
-          helper: 'API-based integration sources',
-          tone: 'good',
-          delta: `${formatCount(integrationItems.filter((item) => item.sourceType === 'database').length)} database feeds`,
-          icon: 'filter',
-        },
-        {
-          label: 'Tested Recently',
-          value: formatCount(integrationItems.filter((item) => item.lastTestedAt).length),
-          helper: 'Sources with recorded connection tests',
-          tone: 'neutral',
-          delta: `${formatCount(integrationItems.filter((item) => item.lastSuccessfulSyncAt).length)} have successful syncs`,
-          icon: 'refresh',
-        },
-      ];
-    }
-
     if (currentView === 'users') {
       const uniqueRoles = new Set(userItems.map((item) => item.roleId)).size;
 
@@ -2170,22 +1994,6 @@ function App() {
       }));
     }
 
-    if (currentView === 'audit') {
-      return auditItems.map((item) => ({
-        primary: item.action,
-        secondary: `${item.resourceType} ${item.resourceId} • ${item.actorRole} • ${formatDateTime(item.createdAt)}`,
-        meta: item.outcome.replace(/_/g, ' '),
-      }));
-    }
-
-    if (currentView === 'integrations') {
-      return integrationItems.map((item) => ({
-        primary: item.name,
-        secondary: `${item.sourceType} • ${item.syncFrequency} • Last success ${formatDateTime(item.lastSuccessfulSyncAt)}`,
-        meta: item.status,
-      }));
-    }
-
     if (currentView === 'users') {
       return userItems.map((item) => ({
         primary: item.name,
@@ -2227,10 +2035,6 @@ function App() {
         return wealthManagersOverview;
       case 'uploads':
         return uploadsOverview;
-      case 'audit':
-        return auditOverview;
-      case 'integrations':
-        return integrationsOverview;
       case 'users':
         return usersOverview;
       case 'settings':
@@ -2241,10 +2045,9 @@ function App() {
   })();
 
   const navCounts: Partial<Record<ViewId, string>> = {
-    investments: investmentsOverview.data ? formatCount(investmentsOverview.data.count) : undefined,
+    investments: investmentsOverview.data ? formatCount(investmentsOverview.data.totalItems) : undefined,
     uploads: uploadsOverview.data ? formatCount(uploadsOverview.data.count) : undefined,
     reports: reportsOverview.items.length > 0 ? formatCount(reportsOverview.items.length) : undefined,
-    integrations: integrationsOverview.data ? formatCount(integrationsOverview.data.count) : undefined,
     users: usersOverview.data ? formatCount(usersOverview.data.count) : undefined,
   };
   const isCustomerView = currentView === 'summary' || currentView === 'trends' || currentView === 'portfolio' || currentView === 'wealth-managers';
@@ -3388,93 +3191,339 @@ function App() {
     );
   }
 
+  function renderUsersPage(): ReactNode {
+    const roleGroups = userItems.reduce<Record<string, { roleId: string; members: typeof userItems }>>((acc, item) => {
+      const existing = acc[item.roleId] ?? { roleId: item.roleId, members: [] };
+      existing.members.push(item);
+      acc[item.roleId] = existing;
+      return acc;
+    }, {});
+    const roles = Object.values(roleGroups);
+
+    return (
+      <div className="settings-page">
+        <div className="settings-page-header">
+          <h2>Team</h2>
+          <p>Manage admin accounts, roles, and permissions</p>
+        </div>
+
+        <div className="customer-tab-bar" role="tablist">
+          <button
+            role="tab"
+            aria-selected={usersTab === 'admins'}
+            className={usersTab === 'admins' ? 'customer-tab customer-tab-active' : 'customer-tab'}
+            onClick={() => setUsersTab('admins')}
+          >
+            Admins
+          </button>
+          <button
+            role="tab"
+            aria-selected={usersTab === 'roles'}
+            className={usersTab === 'roles' ? 'customer-tab customer-tab-active' : 'customer-tab'}
+            onClick={() => setUsersTab('roles')}
+          >
+            Roles &amp; Permissions
+          </button>
+        </div>
+
+        {usersTab === 'admins' ? (
+          <section className="panel table-panel">
+            <div className="panel-header">
+              <div>
+                <h3>Administrators</h3>
+                <p className="eyebrow">{formatCount(userItems.length)} accounts</p>
+              </div>
+              <div className="panel-header-actions">
+                <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Invite administrator', description: 'Send an invitation email to a new admin. They will be prompted to set a password on first login.', confirmLabel: 'Send invite', tone: 'default' })}>
+                  Invite user
+                </button>
+              </div>
+            </div>
+            {usersOverview.status === 'loading' ? (
+              <div className="empty-state">
+                <div className="empty-state-icon"><Icon name="refresh" /></div>
+                <h4>Loading team</h4>
+                <p>Fetching admin accounts from the API.</p>
+              </div>
+            ) : userItems.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon"><Icon name="users" /></div>
+                <h4>No admins found</h4>
+                <p>Invite a user to get started.</p>
+              </div>
+            ) : (
+              <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <th scope="col">Name</th>
+                      <th scope="col">Email</th>
+                      <th scope="col">Role</th>
+                      <th scope="col">Status</th>
+                      <th scope="col">Last login</th>
+                      <th scope="col">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {userItems.map((item) => {
+                      const tone = item.status === 'active' ? 'good' : item.status === 'suspended' ? 'warn' : 'neutral';
+                      const initials = item.name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase();
+
+                      return (
+                        <tr key={item.userId}>
+                          <td>
+                            <div className="table-primary-cell">
+                              <strong>{item.name}</strong>
+                            </div>
+                          </td>
+                          <td><span className="table-secondary-copy">{item.email}</span></td>
+                          <td><span className="pill pill-neutral">{item.roleId}</span></td>
+                          <td><span className={`pill pill-${tone}`}>{item.status}</span></td>
+                          <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
+                          <td>
+                            <button className="table-action" type="button" onClick={() => openDialog({ title: item.name, description: `${item.email} • ${item.roleId} • ${item.status}`, confirmLabel: 'Manage user', tone: 'default' })}>
+                              Manage <Icon name="launch" />
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+        ) : (
+          <section className="panel">
+            <div className="panel-header">
+              <div>
+                <h3>Roles &amp; Permissions</h3>
+                <p className="eyebrow">{formatCount(roles.length)} roles configured</p>
+              </div>
+            </div>
+            {roles.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon"><Icon name="shield" /></div>
+                <h4>No roles found</h4>
+                <p>Roles will appear here once users are assigned.</p>
+              </div>
+            ) : (
+              <div className="inline-note-grid">
+                {roles.map((role) => {
+                  const activeCount = role.members.filter((m) => m.status === 'active').length;
+
+                  return (
+                    <article key={role.roleId} className="inline-note-card">
+                      <strong style={{ textTransform: 'capitalize' }}>{role.roleId.replace(/_/g, ' ')}</strong>
+                      <p>{formatCount(role.members.length)} member{role.members.length !== 1 ? 's' : ''} • {formatCount(activeCount)} active</p>
+                      <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                        {role.members.slice(0, 4).map((m) => (
+                          <span key={m.userId} className="pill pill-neutral" style={{ fontSize: 11 }}>{m.name}</span>
+                        ))}
+                        {role.members.length > 4 ? <span className="pill pill-neutral" style={{ fontSize: 11 }}>+{role.members.length - 4} more</span> : null}
+                      </div>
+                    </article>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+      </div>
+    );
+  }
+
+  function renderSettingsPage(): ReactNode {
+    const tabs: Array<{ id: typeof settingsTab; label: string }> = [
+      { id: 'profile', label: 'Profile' },
+      { id: 'security', label: 'Security' },
+      { id: 'config', label: 'Config' },
+      { id: 'notifications', label: 'Notifications' },
+    ];
+
+    return (
+      <div className="settings-page">
+        <div className="settings-page-header">
+          <h2>Settings</h2>
+          <p>Manage your account and preferences</p>
+        </div>
+
+        <div className="settings-layout">
+          <nav className="settings-nav" aria-label="Settings navigation">
+            {tabs.map((tab) => (
+              <button
+                key={tab.id}
+                className={settingsTab === tab.id ? 'settings-nav-button settings-nav-button-active' : 'settings-nav-button'}
+                type="button"
+                onClick={() => setSettingsTab(tab.id)}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </nav>
+
+          <div className="settings-content">
+            {settingsTab === 'profile' ? (
+              <section className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Profile Information</h3>
+                    <p className="eyebrow">Update your personal details</p>
+                  </div>
+                </div>
+                <div className="form-grid" style={{ padding: '0 18px 18px' }}>
+                  <label className="field-card">
+                    <span className="field-label">First Name</span>
+                    <input
+                      type="text"
+                      value={profileForm.firstName || 'Victor'}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, firstName: e.target.value }))}
+                      placeholder="First name"
+                    />
+                  </label>
+                  <label className="field-card">
+                    <span className="field-label">Last Name</span>
+                    <input
+                      type="text"
+                      value={profileForm.lastName || 'Adeniyi'}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, lastName: e.target.value }))}
+                      placeholder="Last name"
+                    />
+                  </label>
+                  <label className="field-card field-card-wide">
+                    <span className="field-label">Email</span>
+                    <input
+                      type="email"
+                      value={profileForm.email || 'victor.a@credpal.com'}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="Email address"
+                    />
+                  </label>
+                  <label className="field-card">
+                    <span className="field-label">User Type</span>
+                    <select
+                      value={profileForm.userType || 'Admin'}
+                      onChange={(e) => setProfileForm((prev) => ({ ...prev, userType: e.target.value }))}
+                    >
+                      <option value="Admin">Admin</option>
+                      <option value="Analyst">Analyst</option>
+                      <option value="Viewer">Viewer</option>
+                    </select>
+                  </label>
+                </div>
+                <div className="panel-footer">
+                  <div className="panel-footer-actions">
+                    <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Save profile', description: 'Update your profile information. Changes will be reflected immediately.', confirmLabel: 'Save changes', tone: 'default' })}>
+                      Save changes
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ) : settingsTab === 'security' ? (
+              <section className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Change Password</h3>
+                    <p className="eyebrow">Update your account password</p>
+                  </div>
+                </div>
+                <div className="form-grid" style={{ padding: '0 18px 18px' }}>
+                  <label className="field-card field-card-wide">
+                    <span className="field-label">Current Password</span>
+                    <input
+                      type="password"
+                      value={securityForm.currentPassword}
+                      onChange={(e) => setSecurityForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
+                      placeholder="Enter current password"
+                      autoComplete="current-password"
+                    />
+                  </label>
+                  <label className="field-card">
+                    <span className="field-label">New Password</span>
+                    <input
+                      type="password"
+                      value={securityForm.newPassword}
+                      onChange={(e) => setSecurityForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+                      placeholder="Enter new password"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                  <label className="field-card">
+                    <span className="field-label">Confirm New Password</span>
+                    <input
+                      type="password"
+                      value={securityForm.confirmPassword}
+                      onChange={(e) => setSecurityForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                      placeholder="Confirm new password"
+                      autoComplete="new-password"
+                    />
+                  </label>
+                </div>
+                <div className="panel-footer">
+                  <div className="panel-footer-actions">
+                    <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Change password', description: 'Your password will be updated. You will need to use the new password on your next login.', confirmLabel: 'Change password', tone: 'default' })}>
+                      Change Password
+                    </button>
+                  </div>
+                </div>
+              </section>
+            ) : settingsTab === 'config' ? (
+              <section className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Application Configuration</h3>
+                    <p className="eyebrow">System-level operational settings</p>
+                  </div>
+                  <span className="pill pill-neutral">Admin only</span>
+                </div>
+                <div className="inline-note-grid" style={{ padding: '0 18px 18px' }}>
+                  <article className="inline-note-card">
+                    <strong>System settings</strong>
+                    <p>{formatCount(settingsData?.settings.length)} persisted configuration keys, {formatCount(settingsData?.settings.filter((item) => item.isSensitive).length)} marked sensitive.</p>
+                  </article>
+                  <article className="inline-note-card">
+                    <strong>Tenor bands</strong>
+                    <p>{settingsData?.tenorBands.filter((b) => b.status === 'active').map((b) => `${b.label} (${b.minDays}–${b.maxDays}d)`).slice(0, 3).join(' • ') || 'No active tenor bands.'}</p>
+                  </article>
+                  <article className="inline-note-card">
+                    <strong>Source channels</strong>
+                    <p>{settingsData?.sourceChannels.filter((c) => c.status === 'active').map((c) => c.name).slice(0, 4).join(' • ') || 'No active source channels.'}</p>
+                  </article>
+                </div>
+              </section>
+            ) : (
+              <section className="panel">
+                <div className="panel-header">
+                  <div>
+                    <h3>Notification Preferences</h3>
+                    <p className="eyebrow">Control how you receive alerts</p>
+                  </div>
+                </div>
+                <div className="form-grid" style={{ padding: '0 18px 18px' }}>
+                  {[
+                    { label: 'Upload completed', description: 'Notify when a CSV upload finishes processing' },
+                    { label: 'Upload failed', description: 'Notify when a CSV upload encounters errors' },
+                    { label: 'Report ready', description: 'Notify when a report export is ready to download' },
+                    { label: 'User invited', description: 'Notify when a new admin user is invited' },
+                  ].map((pref) => (
+                    <label key={pref.label} className="field-card field-card-toggle">
+                      <div>
+                        <span className="field-label">{pref.label}</span>
+                        <span className="field-help">{pref.description}</span>
+                      </div>
+                      <input type="checkbox" defaultChecked />
+                    </label>
+                  ))}
+                </div>
+              </section>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   function renderWorkbench(): ReactNode {
-    if (currentView === 'settings') {
-      const activeTenorBands = settingsData?.tenorBands.filter((item) => item.status === 'active') ?? [];
-      const activeSourceChannels = settingsData?.sourceChannels.filter((item) => item.status === 'active') ?? [];
-
-      return (
-        <section className="detail-panel panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Configuration</p>
-              <h3>{panelCopyByView[currentView].title}</h3>
-            </div>
-            <span className="pill pill-neutral">Admin controls</span>
-          </div>
-
-          <div className="inline-note-grid">
-            <article className="inline-note-card">
-              <strong>System settings</strong>
-              <p>{formatCount(settingsData?.settings.length)} persisted keys, with {formatCount(settingsData?.settings.filter((item) => item.isSensitive).length)} marked as sensitive and restricted to admins.</p>
-            </article>
-            <article className="inline-note-card">
-              <strong>Tenor bands</strong>
-              <p>{activeTenorBands.length > 0 ? activeTenorBands.map((item) => `${item.label} (${item.minDays}-${item.maxDays}d)`).slice(0, 3).join(' • ') : 'No active tenor bands returned.'}</p>
-            </article>
-            <article className="inline-note-card">
-              <strong>Source channels</strong>
-              <p>{activeSourceChannels.length > 0 ? activeSourceChannels.map((item) => item.name).slice(0, 4).join(' • ') : 'No active source channels returned.'}</p>
-            </article>
-          </div>
-
-          <div className="panel-footer">
-            <div className="panel-footer-actions">
-              <button className="secondary-button" type="button" onClick={() => openDialog({ title: 'Review configuration audit log', description: 'Open the change log to inspect prior configuration updates and approval history before saving.', confirmLabel: 'Open change log', tone: 'default' })}>
-                {currentDefinition.secondaryActionLabel}
-              </button>
-              <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Save configuration changes', description: 'This will queue the updated reporting defaults and operational controls for review from the settings page.', confirmLabel: 'Save settings', tone: 'default' })}>
-                {currentDefinition.actionLabel}
-              </button>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    if (currentView === 'users') {
-      const activeUsers = userItems.filter((item) => item.status === 'active');
-      const suspendedUsers = userItems.filter((item) => item.status === 'suspended');
-
-      return (
-        <section className="detail-panel panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Users</p>
-              <h3>{panelCopyByView[currentView].title}</h3>
-            </div>
-            <span className="pill pill-good">Protected workflow</span>
-          </div>
-
-          <div className="inline-note-grid">
-            <article className="inline-note-card">
-              <strong>Active users</strong>
-              <p>{formatCount(activeUsers.length)} active accounts are available for dashboard, upload, and reporting workflows.</p>
-            </article>
-            <article className="inline-note-card">
-              <strong>Suspended users</strong>
-              <p>{formatCount(suspendedUsers.length)} suspended accounts require governance review before they can be reactivated.</p>
-            </article>
-            <article className="inline-note-card">
-              <strong>Recent access activity</strong>
-              <p>{userItems.find((item) => item.lastLoginAt) ? `${userItems.find((item) => item.lastLoginAt)?.name} logged in ${formatDateTime(userItems.find((item) => item.lastLoginAt)?.lastLoginAt)}.` : 'No recent login timestamps were returned by the API.'}</p>
-            </article>
-          </div>
-
-          <div className="panel-footer">
-            <div className="panel-footer-actions">
-              <button className="secondary-button" type="button" onClick={() => openDialog({ title: 'Review role permissions', description: 'Open the permission map to validate the current access model before inviting another user.', confirmLabel: 'Open permissions', tone: 'default' })}>
-                {currentDefinition.secondaryActionLabel}
-              </button>
-              <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Invite platform user', description: 'This queues a new user invitation with the selected role and keeps approval context visible to administrators.', confirmLabel: 'Invite user', tone: 'default' })}>
-                {currentDefinition.actionLabel}
-              </button>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
     if (currentView === 'uploads') {
       return (
         <section className="detail-panel panel upload-workbench-panel">
@@ -3503,54 +3552,6 @@ function App() {
                 {currentDefinition.secondaryActionLabel}
               </button>
               <button className="primary-button" type="button" onClick={() => openDialog({ title: currentDefinition.actionLabel, description: selectedUploadName ? `${selectedUploadName} is staged for upload review.` : 'Choose a CSV file first to start the upload flow.', confirmLabel: currentDefinition.actionLabel, tone: 'default' })}>
-                {currentDefinition.actionLabel}
-              </button>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
-    if (currentView === 'integrations') {
-      const steps = ['Select source', 'Run sync', 'Inspect errors', 'Confirm retry'];
-      const failedSources = integrationItems.filter((item) => item.status === 'failed');
-
-      return (
-        <section className="detail-panel panel">
-          <div className="panel-header">
-            <div>
-              <p className="eyebrow">Operations</p>
-              <h3>{panelCopyByView[currentView].title}</h3>
-            </div>
-            <span className="pill pill-warn">Action workflow</span>
-          </div>
-
-          <div className="step-grid">
-            {steps.map((step, index) => (
-              <article key={step} className="step-card">
-                <span className="step-index">0{index + 1}</span>
-                <strong>{step}</strong>
-              </article>
-            ))}
-          </div>
-
-          <div className="inline-note-grid">
-            <article className="inline-note-card">
-              <strong>Sync health</strong>
-              <p>{integrationItems.length > 0 ? `${formatCount(integrationItems.filter((item) => item.status === 'active').length)} active sources, ${formatCount(failedSources.length)} failed sources, ${formatCount(integrationItems.filter((item) => item.lastSuccessfulSyncAt).length)} with successful sync history.` : 'No integration sources returned from the API.'}</p>
-            </article>
-            <article className="inline-note-card">
-              <strong>Recovery focus</strong>
-              <p>{failedSources.length > 0 ? failedSources.map((item) => item.name).slice(0, 3).join(' • ') : 'No failed sources are currently flagged.'}</p>
-            </article>
-          </div>
-
-          <div className="panel-footer">
-            <div className="panel-footer-actions">
-              <button className="secondary-button" type="button" onClick={() => openDialog({ title: currentDefinition.secondaryActionLabel, description: `Open the supporting ${currentDefinition.badge.toLowerCase()} workflow so operators can inspect the current state before proceeding.`, confirmLabel: currentDefinition.secondaryActionLabel, tone: 'default' })}>
-                {currentDefinition.secondaryActionLabel}
-              </button>
-              <button className="primary-button" type="button" onClick={() => openDialog({ title: currentDefinition.actionLabel, description: `Confirm this ${currentDefinition.badge.toLowerCase()} command before it is sent from the current page context.`, confirmLabel: currentDefinition.actionLabel, tone: 'danger' })}>
                 {currentDefinition.actionLabel}
               </button>
             </div>
@@ -3682,7 +3683,7 @@ function App() {
           {notice ? <div className={`feedback-banner feedback-${notice.tone}`}>{notice.message}</div> : null}
           {currentView !== 'reports' && currentLoadState.status === 'error' ? <div className="feedback-banner feedback-warn">Live data is unavailable for this tab: {currentLoadState.error}</div> : null}
 
-          {currentView === 'reports' ? renderReportsOverview() : (
+          {currentView === 'reports' ? renderReportsOverview() : currentView === 'users' ? renderUsersPage() : currentView === 'settings' ? renderSettingsPage() : (
             <>
               {currentView === 'portfolio' || currentView === 'wealth-managers' || currentView === 'investments' || currentView === 'trends' ? null : (
                 <section className="toolbar panel">
@@ -3699,7 +3700,6 @@ function App() {
                     </div>
                   </div>
 
-                  {currentView !== 'integrations' && currentView !== 'users' ? (
                   <div className="toolbar-filter-block">
                     <span className="toolbar-label">Window</span>
                     <div className="range-toggle" role="tablist" aria-label="Select reporting window">
@@ -3710,7 +3710,6 @@ function App() {
                       ))}
                     </div>
                   </div>
-                  ) : null}
 
                   <div className="toolbar-summary-block">
                     <span className="toolbar-label">Visible rows</span>
