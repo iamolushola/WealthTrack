@@ -1043,15 +1043,15 @@ interface PaginatorProps {
 }
 
 function Paginator({ page, totalPages, totalItems, pageSize, isLoading, onPageChange }: PaginatorProps): ReactNode {
-  function buildChips(): Array<number | 'ellipsis'> {
-    const chips: Array<number | 'ellipsis'> = [];
+  function buildChips(): Array<number | 'ellipsis-before' | 'ellipsis-after'> {
+    const chips: Array<number | 'ellipsis-before' | 'ellipsis-after'> = [];
     const add = (n: number) => { if (!chips.includes(n)) chips.push(n); };
     add(1);
-    if (page > 3) chips.push('ellipsis');
+    if (page > 3) chips.push('ellipsis-before');
     if (page > 2) add(page - 1);
     add(page);
     if (page < totalPages - 1) add(page + 1);
-    if (page < totalPages - 2) chips.push('ellipsis');
+    if (page < totalPages - 2) chips.push('ellipsis-after');
     if (totalPages > 1) add(totalPages);
     return chips;
   }
@@ -1068,9 +1068,9 @@ function Paginator({ page, totalPages, totalItems, pageSize, isLoading, onPageCh
       {totalPages > 1 && (
         <div>
           <button type="button" disabled={page <= 1 || isLoading} onClick={() => onPageChange(page - 1)} aria-label="Previous page">Prev</button>
-          {chips.map((chip, i) =>
-            chip === 'ellipsis'
-              ? <span key={`e${i}`} className="pagination-ellipsis">…</span>
+          {chips.map((chip) =>
+            typeof chip === 'string'
+              ? <span key={chip} className="pagination-ellipsis">…</span>
               : <button key={chip} type="button" className={chip === page ? 'page-chip-active' : undefined} aria-current={chip === page ? 'page' : undefined} disabled={isLoading} onClick={() => onPageChange(chip)}>{chip}</button>
           )}
           <button type="button" disabled={page >= totalPages || isLoading} onClick={() => onPageChange(page + 1)} aria-label="Next page">Next</button>
@@ -1397,7 +1397,7 @@ function App() {
     }
 
     let cancelled = false;
-    setPortfolioOverview({ status: 'loading', data: null, error: null });
+    setPortfolioOverview((prev) => ({ ...prev, status: 'loading', error: null }));
 
     void fetchViewData<CustomerPortfolioOverview>(`dashboard/customer-portfolio?page=${portfolioPage}&pageSize=25`)
       .then((data) => {
@@ -1427,7 +1427,7 @@ function App() {
     }
 
     let cancelled = false;
-    setInvestmentsOverview({ status: 'loading', data: null, error: null });
+    setInvestmentsOverview((prev) => ({ ...prev, status: 'loading', error: null }));
 
     void fetchViewData<InvestmentsOverview>(`investments?page=${investmentsPage}&pageSize=50`)
       .then((data) => {
