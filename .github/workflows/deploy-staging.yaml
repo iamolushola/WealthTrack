@@ -1,0 +1,282 @@
+name: Deploying to Staging
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      force_redeploy:
+        description: Redeploy even if SHA matches current staging tag
+        type: boolean
+        default: false
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  VESTA_APP_NAME: wealthtrack
+  SWR_REGISTRY: swr.af-south-1.myhuaweicloud.com
+  SWR_NAMESPACE: credpal-prod
+  STAGING_URL: https://wealthtrack-staging.credpal.xyz
+  HEALTH_PATH: /api/v1/health/live
+
+jobs:
+  validate:
+    name: Type-check & compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      IMAGE_TAG: ${{ steps.tag.outputs.IMAGE_TAG }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          cache: npm
+      - run: npm ci
+      - name: Compile all apps
+        run: |
+          npm run api:build
+          npm run worker:build
+          npm run dashboard:build
+      - name: Generate image tag
+        id: tag
+        run: |
+          SHORT_SHA=$(echo "$GITHUB_SHA" | cut -c1-7)
+          IMAGE_TAG="staging-${SHORT_SHA}"
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          { echo "### Validate"; echo "- IMAGE_TAG: \`${IMAGE_TAG}\`"; echo "- sha: \`${GITHUB_SHA}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+  build-api:
+    name: Build & push API image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE_TAG: ${{ needs.validate.outputs.IMAGE_TAG }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Login to SWR
+        uses: huaweicloud/swr-login@v2.1.0 # pinned to match order-pro
+        with:
+          access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ACCESS_KEY_SECRET }}
+          region: af-south-1
+      - name: Build and push API image
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export DOCKER_BUILDKIT=0
+          IMAGE_REF="${SWR_REGISTRY}/${SWR_NAMESPACE}/wealthtrack-api:${IMAGE_TAG}"
+          docker build \
+            --build-arg APP_VERSION="${APP_VERSION}" \
+            -t "${IMAGE_REF}" \
+            -f apps/api/Dockerfile .
+          docker push "${IMAGE_REF}"
+          { echo "### Build API"; echo "- \`${IMAGE_REF}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+  build-worker:
+    name: Build & push worker image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE_TAG: ${{ needs.validate.outputs.IMAGE_TAG }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Login to SWR
+        uses: huaweicloud/swr-login@v2.1.0 # pinned to match order-pro
+        with:
+          access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ACCESS_KEY_SECRET }}
+          region: af-south-1
+      - name: Build and push worker image
+        env:
+          APP_VERSION: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          export DOCKER_BUILDKIT=0
+          IMAGE_REF="${SWR_REGISTRY}/${SWR_NAMESPACE}/wealthtrack-worker:${IMAGE_TAG}"
+          docker build \
+            --build-arg APP_VERSION="${APP_VERSION}" \
+            -t "${IMAGE_REF}" \
+            -f apps/worker/Dockerfile .
+          docker push "${IMAGE_REF}"
+          { echo "### Build Worker"; echo "- \`${IMAGE_REF}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+  build-dashboard:
+    name: Build & push dashboard image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      IMAGE_TAG: ${{ needs.validate.outputs.IMAGE_TAG }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Login to SWR
+        uses: huaweicloud/swr-login@v2.1.0 # pinned to match order-pro
+        with:
+          access-key-id: ${{ secrets.ACCESS_KEY_ID }}
+          access-key-secret: ${{ secrets.ACCESS_KEY_SECRET }}
+          region: af-south-1
+      - name: Build and push dashboard image
+        env:
+          VITE_API_BASE_URL: ${{ secrets.STAGING_VITE_API_BASE_URL }}
+        run: |
+          set -euo pipefail
+          export DOCKER_BUILDKIT=0
+          IMAGE_REF="${SWR_REGISTRY}/${SWR_NAMESPACE}/wealthtrack-dashboard:${IMAGE_TAG}"
+          docker build \
+            --build-arg VITE_API_BASE_URL="${VITE_API_BASE_URL}" \
+            -t "${IMAGE_REF}" \
+            -f apps/dashboard/Dockerfile .
+          docker push "${IMAGE_REF}"
+          { echo "### Build Dashboard"; echo "- \`${IMAGE_REF}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+  deploy:
+    name: Deploy to Vesta staging
+    needs: [validate, build-api, build-worker, build-dashboard]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      PREVIOUS_TAG: ${{ steps.snapshot.outputs.PREVIOUS_TAG }}
+    env:
+      VESTA_API_KEY: ${{ secrets.VESTA_STAGING_API_KEY }}
+      IMAGE_TAG: ${{ needs.validate.outputs.IMAGE_TAG }}
+      ENVIRONMENT: staging
+      BASE_URL: https://k8.credpal.xyz
+    steps:
+      - name: Snapshot current Vesta tag (for rollback)
+        id: snapshot
+        run: |
+          set -uo pipefail
+          PREV=$(curl -fsS \
+            -H "Authorization: Bearer $VESTA_API_KEY" \
+            "${BASE_URL}/api/v1/apps/${VESTA_APP_NAME}/environments/${ENVIRONMENT}" \
+            2>/dev/null | jq -r '.tag // empty' || echo "")
+          if [ -z "$PREV" ]; then
+            echo "::warning::Could not determine previous tag; rollback disabled."
+          fi
+          echo "PREVIOUS_TAG=${PREV}" >> "$GITHUB_OUTPUT"
+          { echo "### Deploy"; echo "- Previous tag: \`${PREV:-unknown}\`"; echo "- New tag: \`${IMAGE_TAG}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy to Vesta
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            "${BASE_URL}/api/v1/apps/${VESTA_APP_NAME}/deploy" \
+            -H 'accept: */*' \
+            -H "Authorization: Bearer $VESTA_API_KEY" \
+            -H 'Content-Type: application/json' \
+            -d "{\"tag\": \"${IMAGE_TAG}\", \"environment\": \"${ENVIRONMENT}\"}"
+
+  health-check:
+    name: Health check
+    needs: [validate, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Probe staging
+        env:
+          URL: ${{ env.STAGING_URL }}${{ env.HEALTH_PATH }}
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_TAG: ${{ needs.validate.outputs.IMAGE_TAG }}
+        run: |
+          set -uo pipefail
+          ATTEMPTS=20
+          SLEEP=6
+          for i in $(seq 1 $ATTEMPTS); do
+            CODE=$(curl -o /tmp/body -s -w "%{http_code}" --max-time 5 "$URL" || true)
+            if [ "$CODE" = "200" ]; then
+              if grep -q "$EXPECTED_SHA" /tmp/body || grep -q "$EXPECTED_TAG" /tmp/body; then
+                echo "✅ Healthy on attempt $i (build identity confirmed)"
+                { echo "### Health Check"; echo "- Healthy after ${i} attempt(s)"; } >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              echo "Attempt $i: 200 but new build identity not present yet."
+            else
+              echo "Attempt $i: HTTP $CODE"
+            fi
+            sleep $SLEEP
+          done
+          echo "::error::Health check failed after $ATTEMPTS attempts"
+          exit 1
+
+  rollback:
+    name: Rollback on failure
+    needs: [deploy, health-check]
+    if: failure() && needs.deploy.result == 'success' && needs.deploy.outputs.PREVIOUS_TAG != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      VESTA_API_KEY: ${{ secrets.VESTA_STAGING_API_KEY }}
+      PREV: ${{ needs.deploy.outputs.PREVIOUS_TAG }}
+      ENVIRONMENT: staging
+      BASE_URL: https://k8.credpal.xyz
+    steps:
+      - name: Re-deploy previous tag
+        run: |
+          set -euo pipefail
+          curl -fsS -X POST \
+            "${BASE_URL}/api/v1/apps/${VESTA_APP_NAME}/deploy" \
+            -H 'accept: */*' \
+            -H "Authorization: Bearer $VESTA_API_KEY" \
+            -H 'Content-Type: application/json' \
+            -d "{\"tag\": \"${PREV}\", \"environment\": \"${ENVIRONMENT}\"}"
+          { echo "### Rollback"; echo "- Reverted to: \`${PREV}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify rollback healthy
+        env:
+          URL: ${{ env.STAGING_URL }}${{ env.HEALTH_PATH }}
+        run: |
+          set -uo pipefail
+          for i in $(seq 1 20); do
+            CODE=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$URL" || true)
+            [ "$CODE" = "200" ] && { echo "✅ Rollback healthy"; exit 0; }
+            echo "Attempt $i: HTTP $CODE"
+            sleep 5
+          done
+          echo "::error::Service still unhealthy after rollback"
+          exit 1
+
+  notify:
+    name: Notify
+    needs: [validate, build-api, build-worker, build-dashboard, deploy, health-check, rollback]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Compose status
+        id: status
+        run: |
+          if [ "${{ needs.health-check.result }}" = "success" ]; then
+            STATUS="✅ Staging deployed"
+          elif [ "${{ needs.rollback.result }}" = "success" ]; then
+            STATUS="↩️ Staging deploy failed — rolled back"
+          else
+            STATUS="❌ Staging deploy failed — manual intervention required"
+          fi
+          echo "STATUS=${STATUS}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Google Chat
+        uses: SimonScholz/google-chat-action@main # pinned to match order-pro
+        with:
+          webhookUrl: "${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}"
+          title: "${{ steps.status.outputs.STATUS }} · ${{ env.VESTA_APP_NAME }}"
+          jobStatus: "${{ job.status }}"
