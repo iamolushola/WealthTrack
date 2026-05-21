@@ -2647,7 +2647,6 @@ function App() {
                 </thead>
                 <tbody>
                   {filteredInvestmentItems.map((item) => {
-                    const statusTone = getToneFromMeta(`${item.recordStatus} ${item.importStatus}`);
                     const d2m = item.days2Maturity;
                     const d2mTone = d2m === null ? 'neutral' : d2m < 0 ? 'danger' : d2m <= 30 ? 'warn' : 'neutral';
 
