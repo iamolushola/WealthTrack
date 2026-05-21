@@ -183,12 +183,19 @@ jobs:
         run: |
           set -euo pipefail
           vesta_deploy() {
-            curl -fsS -X POST \
-              "${BASE_URL}/api/v1/apps/${1}/deploy" \
+            local app="$1"
+            local http_code
+            http_code=$(curl -sS -o /tmp/vesta_body -w "%{http_code}" -X POST \
+              "${BASE_URL}/api/v1/apps/${app}/deploy" \
               -H 'accept: */*' \
               -H "Authorization: Bearer $VESTA_API_KEY" \
               -H 'Content-Type: application/json' \
-              -d "{\"tag\": \"${IMAGE_TAG}\", \"environment\": \"${ENVIRONMENT}\"}"
+              -d "{\"tag\": \"${IMAGE_TAG}\", \"environment\": \"${ENVIRONMENT}\"}")
+            echo "${app}: HTTP ${http_code} — $(cat /tmp/vesta_body)"
+            if [ "${http_code}" -ge 400 ]; then
+              echo "::error::Vesta deploy failed for ${app} (HTTP ${http_code}): $(cat /tmp/vesta_body)"
+              return 1
+            fi
           }
           vesta_deploy "${VESTA_APP_API}"
           vesta_deploy "${VESTA_APP_WORKER}"
