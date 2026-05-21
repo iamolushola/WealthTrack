@@ -24,7 +24,7 @@ permissions:
 env:
   NODE_VERSION: "22"
   REGISTRY: ghcr.io
-  IMAGE_OWNER: iamolushola
+  IMAGE_OWNER: crednet
 
 jobs:
   validate:

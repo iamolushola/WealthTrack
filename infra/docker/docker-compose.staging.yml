@@ -32,7 +32,7 @@ services:
       - wealthtrack_staging
 
   api:
-    image: ghcr.io/iamolushola/wealthtrack-api:${GHCR_IMAGE_TAG:-staging}
+    image: ghcr.io/crednet/wealthtrack-api:${GHCR_IMAGE_TAG:-staging}
     restart: unless-stopped
     depends_on:
       mysql:
@@ -59,7 +59,7 @@ services:
       - wealthtrack_staging
 
   worker:
-    image: ghcr.io/iamolushola/wealthtrack-worker:${GHCR_IMAGE_TAG:-staging}
+    image: ghcr.io/crednet/wealthtrack-worker:${GHCR_IMAGE_TAG:-staging}
     restart: unless-stopped
     depends_on:
       mysql:
@@ -83,7 +83,7 @@ services:
       - wealthtrack_staging
 
   dashboard:
-    image: ghcr.io/iamolushola/wealthtrack-dashboard:${GHCR_IMAGE_TAG:-staging}
+    image: ghcr.io/crednet/wealthtrack-dashboard:${GHCR_IMAGE_TAG:-staging}
     restart: unless-stopped
     depends_on:
       - api
