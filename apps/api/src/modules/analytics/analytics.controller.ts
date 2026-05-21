@@ -36,7 +36,7 @@ export class AnalyticsController {
   ): Promise<object> {
     const p = Math.max(1, Number(page) || 1);
     const ps = Math.min(100, Math.max(10, Number(pageSize) || 25));
-    const filter = {
+    const filter: { q?: string; customerType?: 'new' | 'returning' } = {
       ...(q && { q }),
       ...(customerType === 'new' || customerType === 'returning' ? { customerType } : {}),
     };

@@ -3,6 +3,7 @@ import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { CurrentActor } from '../../common/decorators/current-actor.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
 import { PermissionGuard } from '../../common/guards/permission.guard';
+import { CommissionFilters, InvestmentFilters } from './interfaces/investments.repositories';
 import { InvestmentsService } from './investments.service';
 
 @UseGuards(PermissionGuard)
@@ -24,7 +25,7 @@ export class InvestmentsController {
   ): Promise<object> {
     const p = Math.max(1, Number(page) || 1);
     const ps = Math.min(200, Math.max(10, Number(pageSize) || 50));
-    const filters = {
+    const filters: CommissionFilters = {
       ...(q && { q }),
       ...(customerType === 'new' || customerType === 'returning' ? { customerType } : {}),
       ...(fundType === 'inflow' || fundType === 'rollover' ? { fundType } : {}),
@@ -50,7 +51,7 @@ export class InvestmentsController {
   ): Promise<object> {
     const p = Math.max(1, Number(page) || 1);
     const ps = Math.min(200, Math.max(10, Number(pageSize) || 50));
-    const filters = {
+    const filters: InvestmentFilters = {
       ...(q && { q }),
       ...(customerType === 'new' || customerType === 'returning' ? { customerType } : {}),
       ...(fundType === 'inflow' || fundType === 'rollover' ? { fundType } : {}),
