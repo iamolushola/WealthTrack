@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useState, useMemo } from 'react';
+import { type ReactNode, useEffect, useRef, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { createApiClient, ApiError } from './api-client';
 import { toast } from './toast';
@@ -559,6 +559,14 @@ const dashboardRequestHeaders = {
 
 // Module-level API client — bound once to the base URL and auth headers.
 const api = createApiClient(API_BASE_URL, dashboardRequestHeaders);
+
+// Unauthenticated client for public endpoints (login, forgot-password, etc.)
+const publicApi = createApiClient(API_BASE_URL, {});
+
+// Session idle timeout: sign out after 8 hours of inactivity.
+// Warn the user 5 minutes before the deadline.
+const IDLE_TIMEOUT_MS = 8 * 60 * 60 * 1000;
+const IDLE_WARN_BEFORE_MS = 5 * 60 * 1000;
 
 const reportTypeLabels: Record<ReportExportType, string> = {
   summary: 'Summary',
@@ -1124,6 +1132,43 @@ type PermissionItem = { id: string; code: string; description: string | null };
 type RoleWithPermissions = RoleItem & { permissionCodes: string[] };
 type RolePermissionsMatrix = { roles: RoleWithPermissions[]; permissions: PermissionItem[] };
 
+// ─── Session management ────────────────────────────────────────────────────
+
+const SESSION_STORAGE_KEY = 'wt.session';
+
+type Session = {
+  sessionId: string;
+  actorId: string;
+  actorType: 'admin' | 'analyst' | 'uploader' | 'system';
+  roleCode: string;
+  name: string;
+  email: string;
+  permissions: string[];
+};
+
+function mapRoleToActorType(roleCode: string): Session['actorType'] {
+  if (roleCode === 'analyst' || roleCode === 'viewer') return 'analyst';
+  if (roleCode === 'uploader') return 'uploader';
+  return 'admin';
+}
+
+function loadStoredSession(): Session | null {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Session) : null;
+  } catch {
+    return null;
+  }
+}
+
+function persistSession(s: Session): void {
+  try { localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify(s)); } catch { /* quota exceeded */ }
+}
+
+function eraseSession(): void {
+  try { localStorage.removeItem(SESSION_STORAGE_KEY); } catch { /* ignore */ }
+}
+
 async function apiMutate<T>(method: string, path: string, body?: unknown): Promise<T> {
   return api.mutate<T>(method, path, body);
 }
@@ -1161,10 +1206,8 @@ function App() {
   const [rolesData, setRolesData] = useState<RequestState<{ items: RoleItem[]; count: number }>>({ status: 'idle', data: null, error: null });
   const [roleMatrix, setRoleMatrix] = useState<RequestState<RolePermissionsMatrix>>({ status: 'idle', data: null, error: null });
   const [userDrawer, setUserDrawer] = useState<{ mode: 'invite' | 'edit' | null; userId?: string }>({ mode: null });
-  const [inviteForm, setInviteForm] = useState({ name: '', email: '', roleCode: 'analyst', password: '', confirmPassword: '' });
+  const [inviteForm, setInviteForm] = useState({ name: '', email: '', roleCode: 'analyst' });
   const [editForm, setEditForm] = useState({ name: '', email: '', roleCode: '', status: '' });
-  const [showInvitePwd, setShowInvitePwd] = useState(false);
-  const [showInviteConfirmPwd, setShowInviteConfirmPwd] = useState(false);
   const [newRoleForm, setNewRoleForm] = useState({ name: '', code: '', description: '' });
   const [showCreateRoleDrawer, setShowCreateRoleDrawer] = useState(false);
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
@@ -1260,6 +1303,47 @@ function App() {
   const [trendsPreset, setTrendsPreset] = useState<DatePreset>('all');
   const [dialogIntent, setDialogIntent] = useState<DialogIntent | null>(null);
   const [isDialogBusy, setIsDialogBusy] = useState(false);
+  const [isLoggedOut, setIsLoggedOut] = useState(false);
+  const [showIdleWarning, setShowIdleWarning] = useState(false);
+  const [session, setSession] = useState<Session | null>(() => {
+    const stored = loadStoredSession();
+    if (stored) {
+      Object.assign(dashboardRequestHeaders, {
+        'x-actor-id': stored.actorId,
+        'x-actor-type': stored.actorType,
+        'x-session-id': stored.sessionId,
+        'x-permissions': stored.permissions.join(','),
+      });
+    }
+    return stored;
+  });
+  // Login form state
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState('');
+  const [showLoginPwd, setShowLoginPwd] = useState(false);
+  // Forgot-password state
+  const [forgotEmail, setForgotEmail] = useState('');
+  const [forgotLoading, setForgotLoading] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
+  const [forgotError, setForgotError] = useState('');
+  // Reset / set-password state
+  const [resetPwd, setResetPwd] = useState('');
+  const [resetConfirmPwd, setResetConfirmPwd] = useState('');
+  const [resetLoading, setResetLoading] = useState(false);
+  const [resetError, setResetError] = useState('');
+  const [resetDone, setResetDone] = useState(false);
+  // OTP change-password state (non-super-admin)
+  const [otpStep, setOtpStep] = useState<'idle' | 'otp-sent'>('idle');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpNewPwd, setOtpNewPwd] = useState('');
+  const [otpConfirmPwd, setOtpConfirmPwd] = useState('');
+  const [otpLoading, setOtpLoading] = useState(false);
+  const [otpError, setOtpError] = useState('');
+  const [showOtpPwd, setShowOtpPwd] = useState(false);
+  const idleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const warnTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [customerDrawer, setCustomerDrawer] = useState<PortfolioCustomer | null>(null);
   const [investmentDrawer, setInvestmentDrawer] = useState<InvestmentRecordItem | null>(null);
@@ -2491,6 +2575,145 @@ function App() {
     const file = event.dataTransfer.files?.[0];
     if (file) processUploadFile(file);
   }
+
+  function handleLogout(): void {
+    void api.mutate('POST', 'auth/logout').catch(() => { /* session may already be gone */ });
+    if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+    if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+    eraseSession();
+    setSession(null);
+    setShowIdleWarning(false);
+    setIsLoggedOut(true);
+  }
+
+  async function handleLogin(): Promise<void> {
+    if (!loginEmail.trim() || !loginPassword) {
+      setLoginError('Email and password are required'); return;
+    }
+    setLoginLoading(true);
+    setLoginError('');
+    try {
+      const result = await publicApi.mutate<{
+        sessionId: string;
+        user: { id: string; name: string; email: string; roleCode: string; permissions: string[] };
+      }>('POST', 'auth/login', { email: loginEmail.trim(), password: loginPassword });
+
+      const actorType = mapRoleToActorType(result.user.roleCode);
+      const newSession: Session = {
+        sessionId: result.sessionId,
+        actorId: result.user.id,
+        actorType,
+        roleCode: result.user.roleCode,
+        name: result.user.name,
+        email: result.user.email,
+        permissions: result.user.permissions,
+      };
+      Object.assign(dashboardRequestHeaders, {
+        'x-actor-id': newSession.actorId,
+        'x-actor-type': newSession.actorType,
+        'x-session-id': newSession.sessionId,
+        'x-permissions': newSession.permissions.join(','),
+      });
+      persistSession(newSession);
+      setSession(newSession);
+      setIsLoggedOut(false);
+      setLoginPassword('');
+    } catch (err: unknown) {
+      setLoginError(err instanceof Error ? err.message : 'Login failed');
+    } finally {
+      setLoginLoading(false);
+    }
+  }
+
+  async function handleForgotPassword(): Promise<void> {
+    if (!forgotEmail.trim()) { setForgotError('Email is required'); return; }
+    setForgotLoading(true);
+    setForgotError('');
+    try {
+      await publicApi.mutate('POST', 'auth/forgot-password', { email: forgotEmail.trim() });
+      setForgotSent(true);
+    } catch (err: unknown) {
+      setForgotError(err instanceof Error ? err.message : 'Request failed');
+    } finally {
+      setForgotLoading(false);
+    }
+  }
+
+  async function handleResetPassword(tokenId: string, token: string, purpose: 'reset' | 'set'): Promise<void> {
+    if (resetPwd.length < 8) { setResetError('Password must be at least 8 characters'); return; }
+    if (resetPwd !== resetConfirmPwd) { setResetError('Passwords do not match'); return; }
+    setResetLoading(true);
+    setResetError('');
+    try {
+      const endpoint = purpose === 'set' ? 'auth/set-password' : 'auth/reset-password';
+      await publicApi.mutate('POST', endpoint, { tokenId, token, newPassword: resetPwd });
+      setResetDone(true);
+    } catch (err: unknown) {
+      setResetError(err instanceof Error ? err.message : 'Reset failed');
+    } finally {
+      setResetLoading(false);
+    }
+  }
+
+  async function handleRequestOtp(): Promise<void> {
+    setOtpLoading(true);
+    setOtpError('');
+    try {
+      await api.mutate('POST', 'auth/change-password/request');
+      setOtpStep('otp-sent');
+    } catch (err: unknown) {
+      setOtpError(err instanceof Error ? err.message : 'Failed to send code');
+    } finally {
+      setOtpLoading(false);
+    }
+  }
+
+  async function handleConfirmOtp(): Promise<void> {
+    if (!otpCode || otpCode.length < 6) { setOtpError('Enter the 6-digit code'); return; }
+    if (otpNewPwd.length < 8) { setOtpError('Password must be at least 8 characters'); return; }
+    if (otpNewPwd !== otpConfirmPwd) { setOtpError('Passwords do not match'); return; }
+    setOtpLoading(true);
+    setOtpError('');
+    try {
+      await api.mutate('POST', 'auth/change-password/confirm', { otp: otpCode, newPassword: otpNewPwd });
+      setOtpStep('idle');
+      setOtpCode('');
+      setOtpNewPwd('');
+      setOtpConfirmPwd('');
+      setNotice({ message: 'Password changed successfully', tone: 'info' });
+    } catch (err: unknown) {
+      setOtpError(err instanceof Error ? err.message : 'Verification failed');
+    } finally {
+      setOtpLoading(false);
+    }
+  }
+
+  // Idle session timeout — resets on any user interaction.
+  useEffect(() => {
+    function resetTimers(): void {
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+      setShowIdleWarning(false);
+      warnTimerRef.current = setTimeout(
+        () => setShowIdleWarning(true),
+        IDLE_TIMEOUT_MS - IDLE_WARN_BEFORE_MS,
+      );
+      idleTimerRef.current = setTimeout(() => {
+        setIsLoggedOut(true);
+      }, IDLE_TIMEOUT_MS);
+    }
+
+    const events = ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart'] as const;
+    events.forEach((e) => window.addEventListener(e, resetTimers, { passive: true }));
+    resetTimers();
+
+    return () => {
+      events.forEach((e) => window.removeEventListener(e, resetTimers));
+      if (idleTimerRef.current) clearTimeout(idleTimerRef.current);
+      if (warnTimerRef.current) clearTimeout(warnTimerRef.current);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function confirmDialog(): Promise<void> {
     if (!dialogIntent) return;
@@ -4103,24 +4326,16 @@ function App() {
 
     function closeDrawer() {
       setUserDrawer({ mode: null });
-      setInviteForm({ name: '', email: '', roleCode: 'analyst', password: '', confirmPassword: '' });
-      setShowInvitePwd(false);
-      setShowInviteConfirmPwd(false);
+      setInviteForm({ name: '', email: '', roleCode: 'analyst' });
     }
 
     async function handleInviteSubmit() {
       if (!inviteForm.name.trim() || !inviteForm.email.trim()) {
         setNotice({ message: 'Name and email are required', tone: 'warn' }); return;
       }
-      if (inviteForm.password.length < 8) {
-        setNotice({ message: 'Password must be at least 8 characters', tone: 'warn' }); return;
-      }
-      if (inviteForm.password !== inviteForm.confirmPassword) {
-        setNotice({ message: 'Passwords do not match', tone: 'warn' }); return;
-      }
       try {
-        await apiMutate('POST', 'users', { name: inviteForm.name.trim(), email: inviteForm.email.trim(), roleCode: inviteForm.roleCode, password: inviteForm.password });
-        setNotice({ message: `${inviteForm.name} has been added to the team`, tone: 'info' });
+        await apiMutate('POST', 'users', { name: inviteForm.name.trim(), email: inviteForm.email.trim(), roleCode: inviteForm.roleCode });
+        setNotice({ message: `Invite sent to ${inviteForm.email} — they'll receive a set-password email`, tone: 'info' });
         setUsersOverview({ status: 'idle', data: null, error: null });
         closeDrawer();
       } catch (err: unknown) {
@@ -4174,20 +4389,9 @@ function App() {
                     }
                   </select>
                 </label>
-                <label className="field-card">
-                  <span className="field-label">Password</span>
-                  <div className="password-input-shell">
-                    <input type={showInvitePwd ? 'text' : 'password'} value={inviteForm.password} onChange={(e) => setInviteForm((p) => ({ ...p, password: e.target.value }))} placeholder="Min. 8 characters" autoComplete="new-password" />
-                    <button type="button" className="password-toggle" onClick={() => setShowInvitePwd((p) => !p)} aria-label={showInvitePwd ? 'Hide password' : 'Show password'}><Icon name={showInvitePwd ? 'eye-off' : 'eye'} /></button>
-                  </div>
-                </label>
-                <label className="field-card">
-                  <span className="field-label">Confirm Password</span>
-                  <div className="password-input-shell">
-                    <input type={showInviteConfirmPwd ? 'text' : 'password'} value={inviteForm.confirmPassword} onChange={(e) => setInviteForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Repeat password" autoComplete="new-password" />
-                    <button type="button" className="password-toggle" onClick={() => setShowInviteConfirmPwd((p) => !p)} aria-label={showInviteConfirmPwd ? 'Hide password' : 'Show password'}><Icon name={showInviteConfirmPwd ? 'eye-off' : 'eye'} /></button>
-                  </div>
-                </label>
+                <p className="eyebrow" style={{ gridColumn: '1/-1', marginTop: 4 }}>
+                  A set-password email will be sent to the invitee automatically.
+                </p>
               </div>
             ) : editingUser ? (
               <div className="form-grid">
@@ -4571,25 +4775,29 @@ function App() {
     }
 
     async function handleChangePassword() {
-      if (!securityForm.currentPassword) {
-        setNotice({ message: 'Current password is required', tone: 'warn' }); return;
+      // Super admin uses the direct current-password flow
+      if (session?.roleCode === 'super_admin') {
+        if (!securityForm.currentPassword) {
+          setNotice({ message: 'Current password is required', tone: 'warn' }); return;
+        }
+        if (securityForm.newPassword.length < 8) {
+          setNotice({ message: 'New password must be at least 8 characters', tone: 'warn' }); return;
+        }
+        if (securityForm.newPassword !== securityForm.confirmPassword) {
+          setNotice({ message: 'New passwords do not match', tone: 'warn' }); return;
+        }
+        try {
+          await api.mutate('PATCH', 'users/me/password', { currentPassword: securityForm.currentPassword, newPassword: securityForm.newPassword });
+          setSecurityForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+          setShowCurrentPwd(false); setShowNewPwd(false); setShowConfirmPwd(false);
+          setNotice({ message: 'Password changed successfully', tone: 'info' });
+        } catch (err: unknown) {
+          setNotice({ message: err instanceof Error ? err.message : 'Failed to change password', tone: 'warn' });
+        }
+        return;
       }
-      if (securityForm.newPassword.length < 8) {
-        setNotice({ message: 'New password must be at least 8 characters', tone: 'warn' }); return;
-      }
-      if (securityForm.newPassword !== securityForm.confirmPassword) {
-        setNotice({ message: 'New passwords do not match', tone: 'warn' }); return;
-      }
-      try {
-        await apiMutate('PATCH', 'users/me/password', { currentPassword: securityForm.currentPassword, newPassword: securityForm.newPassword });
-        setSecurityForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-        setShowCurrentPwd(false);
-        setShowNewPwd(false);
-        setShowConfirmPwd(false);
-        setNotice({ message: 'Password changed successfully', tone: 'info' });
-      } catch (err: unknown) {
-        setNotice({ message: err instanceof Error ? err.message : 'Failed to change password', tone: 'warn' });
-      }
+      // All other roles use the OTP flow
+      await handleRequestOtp();
     }
 
     return (
@@ -4648,35 +4856,101 @@ function App() {
                 <div className="panel-header">
                   <div>
                     <h3>Change Password</h3>
-                    <p className="eyebrow">Update your account password</p>
+                    <p className="eyebrow">
+                      {session?.roleCode === 'super_admin'
+                        ? 'Enter your current password to set a new one'
+                        : otpStep === 'idle'
+                          ? 'Request a verification code sent to your email to change your password'
+                          : 'Enter the code from your email and choose a new password'}
+                    </p>
                   </div>
                 </div>
-                <div className="form-grid" style={{ padding: '0 18px 18px' }}>
-                  <label className="field-card field-card-wide">
-                    <span className="field-label">Current Password</span>
-                    <div className="password-input-shell">
-                      <input type={showCurrentPwd ? 'text' : 'password'} value={securityForm.currentPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, currentPassword: e.target.value }))} placeholder="Enter current password" autoComplete="current-password" />
-                      <button type="button" className="password-toggle" onClick={() => setShowCurrentPwd((p) => !p)} aria-label={showCurrentPwd ? 'Hide' : 'Show'}><Icon name={showCurrentPwd ? 'eye-off' : 'eye'} /></button>
-                    </div>
-                  </label>
-                  <label className="field-card">
-                    <span className="field-label">New Password</span>
-                    <div className="password-input-shell">
-                      <input type={showNewPwd ? 'text' : 'password'} value={securityForm.newPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, newPassword: e.target.value }))} placeholder="Min. 8 characters" autoComplete="new-password" />
-                      <button type="button" className="password-toggle" onClick={() => setShowNewPwd((p) => !p)} aria-label={showNewPwd ? 'Hide' : 'Show'}><Icon name={showNewPwd ? 'eye-off' : 'eye'} /></button>
-                    </div>
-                  </label>
-                  <label className="field-card">
-                    <span className="field-label">Confirm New Password</span>
-                    <div className="password-input-shell">
-                      <input type={showConfirmPwd ? 'text' : 'password'} value={securityForm.confirmPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Repeat new password" autoComplete="new-password" />
-                      <button type="button" className="password-toggle" onClick={() => setShowConfirmPwd((p) => !p)} aria-label={showConfirmPwd ? 'Hide' : 'Show'}><Icon name={showConfirmPwd ? 'eye-off' : 'eye'} /></button>
-                    </div>
-                  </label>
-                </div>
+
+                {/* Super admin: direct current-password flow */}
+                {session?.roleCode === 'super_admin' ? (
+                  <div className="form-grid" style={{ padding: '0 18px 18px' }}>
+                    <label className="field-card field-card-wide">
+                      <span className="field-label">Current Password</span>
+                      <div className="password-input-shell">
+                        <input type={showCurrentPwd ? 'text' : 'password'} value={securityForm.currentPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, currentPassword: e.target.value }))} placeholder="Enter current password" autoComplete="current-password" />
+                        <button type="button" className="password-toggle" onClick={() => setShowCurrentPwd((p) => !p)} aria-label={showCurrentPwd ? 'Hide' : 'Show'}><Icon name={showCurrentPwd ? 'eye-off' : 'eye'} /></button>
+                      </div>
+                    </label>
+                    <label className="field-card">
+                      <span className="field-label">New Password</span>
+                      <div className="password-input-shell">
+                        <input type={showNewPwd ? 'text' : 'password'} value={securityForm.newPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, newPassword: e.target.value }))} placeholder="Min. 8 characters" autoComplete="new-password" />
+                        <button type="button" className="password-toggle" onClick={() => setShowNewPwd((p) => !p)} aria-label={showNewPwd ? 'Hide' : 'Show'}><Icon name={showNewPwd ? 'eye-off' : 'eye'} /></button>
+                      </div>
+                    </label>
+                    <label className="field-card">
+                      <span className="field-label">Confirm New Password</span>
+                      <div className="password-input-shell">
+                        <input type={showConfirmPwd ? 'text' : 'password'} value={securityForm.confirmPassword} onChange={(e) => setSecurityForm((p) => ({ ...p, confirmPassword: e.target.value }))} placeholder="Repeat new password" autoComplete="new-password" />
+                        <button type="button" className="password-toggle" onClick={() => setShowConfirmPwd((p) => !p)} aria-label={showConfirmPwd ? 'Hide' : 'Show'}><Icon name={showConfirmPwd ? 'eye-off' : 'eye'} /></button>
+                      </div>
+                    </label>
+                  </div>
+                ) : otpStep === 'idle' ? (
+                  /* Non-super-admin: request OTP step */
+                  <div style={{ padding: '0 18px 18px' }}>
+                    <p style={{ fontSize: 14, color: 'var(--text-secondary)', marginBottom: 16 }}>
+                      A 6-digit verification code will be sent to your registered email address.
+                      The code expires in 15 minutes.
+                    </p>
+                    {otpError && <p style={{ color: 'var(--danger)', fontSize: 13, marginBottom: 12 }}>{otpError}</p>}
+                  </div>
+                ) : (
+                  /* Non-super-admin: enter OTP + new password step */
+                  <div className="form-grid" style={{ padding: '0 18px 18px' }}>
+                    <label className="field-card field-card-wide">
+                      <span className="field-label">Verification Code</span>
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        maxLength={6}
+                        value={otpCode}
+                        onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="6-digit code"
+                        autoComplete="one-time-code"
+                      />
+                    </label>
+                    <label className="field-card">
+                      <span className="field-label">New Password</span>
+                      <div className="password-input-shell">
+                        <input type={showOtpPwd ? 'text' : 'password'} value={otpNewPwd} onChange={(e) => setOtpNewPwd(e.target.value)} placeholder="Min. 8 characters" autoComplete="new-password" />
+                        <button type="button" className="password-toggle" onClick={() => setShowOtpPwd((p) => !p)} aria-label={showOtpPwd ? 'Hide' : 'Show'}><Icon name={showOtpPwd ? 'eye-off' : 'eye'} /></button>
+                      </div>
+                    </label>
+                    <label className="field-card">
+                      <span className="field-label">Confirm New Password</span>
+                      <div className="password-input-shell">
+                        <input type={showOtpPwd ? 'text' : 'password'} value={otpConfirmPwd} onChange={(e) => setOtpConfirmPwd(e.target.value)} placeholder="Repeat new password" autoComplete="new-password" />
+                      </div>
+                    </label>
+                    {otpError && <p style={{ color: 'var(--danger)', fontSize: 13, gridColumn: '1/-1' }}>{otpError}</p>}
+                    <p style={{ fontSize: 12, color: 'var(--text-secondary)', gridColumn: '1/-1' }}>
+                      Didn't receive the code?{' '}
+                      <button type="button" style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', fontSize: 12, padding: 0 }} onClick={() => { setOtpStep('idle'); setOtpCode(''); }}>
+                        Request a new one
+                      </button>
+                    </p>
+                  </div>
+                )}
+
                 <div className="panel-footer">
                   <div className="panel-footer-actions">
-                    <button className="primary-button" type="button" onClick={handleChangePassword}>Change Password</button>
+                    {session?.roleCode === 'super_admin' ? (
+                      <button className="primary-button" type="button" onClick={handleChangePassword}>Change Password</button>
+                    ) : otpStep === 'idle' ? (
+                      <button className="primary-button" type="button" disabled={otpLoading} onClick={handleChangePassword}>
+                        {otpLoading ? 'Sending…' : 'Send Verification Code'}
+                      </button>
+                    ) : (
+                      <button className="primary-button" type="button" disabled={otpLoading} onClick={handleConfirmOtp}>
+                        {otpLoading ? 'Verifying…' : 'Change Password'}
+                      </button>
+                    )}
                   </div>
                 </div>
               </section>
@@ -5938,6 +6212,149 @@ function App() {
     return null;
   }
 
+  // ─── Public routes — accessible without session ──────────────────────────
+
+  if (location.pathname === '/forgot-password') {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-brand">WealthTrack</div>
+          <h2 className="auth-title">Forgot your password?</h2>
+          {forgotSent ? (
+            <>
+              <p className="auth-body">
+                If <strong>{forgotEmail}</strong> is registered, we've sent a reset link. Check your inbox (and spam folder).
+              </p>
+              <button className="primary-button" type="button" style={{ width: '100%' }} onClick={() => navigate('/login', { replace: true })}>
+                Back to sign in
+              </button>
+            </>
+          ) : (
+            <>
+              <p className="auth-body">Enter your email and we'll send you a link to reset your password.</p>
+              {forgotError && <p className="auth-error">{forgotError}</p>}
+              <label className="auth-field">
+                <span>Email address</span>
+                <input type="email" autoFocus value={forgotEmail} onChange={(e) => setForgotEmail(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === 'Enter') void handleForgotPassword(); }}
+                  placeholder="you@company.com" autoComplete="email" />
+              </label>
+              <button className="primary-button" type="button" disabled={forgotLoading} style={{ width: '100%' }} onClick={() => void handleForgotPassword()}>
+                {forgotLoading ? 'Sending…' : 'Send Reset Link'}
+              </button>
+              <button className="auth-link-btn" type="button" onClick={() => navigate('/login', { replace: true })}>Back to sign in</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (location.pathname === '/reset-password' || location.pathname === '/set-password') {
+    const params = new URLSearchParams(location.search);
+    const tokenId = params.get('id') ?? '';
+    const token = params.get('token') ?? '';
+    const purpose = location.pathname === '/set-password' ? 'set' : 'reset';
+    const title = purpose === 'set' ? 'Set your password' : 'Reset your password';
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-brand">WealthTrack</div>
+          <h2 className="auth-title">{title}</h2>
+          {resetDone ? (
+            <>
+              <p className="auth-body">Your password has been {purpose === 'set' ? 'set' : 'reset'} successfully. You can now sign in.</p>
+              <button className="primary-button" type="button" style={{ width: '100%' }} onClick={() => { setResetDone(false); navigate('/login', { replace: true }); }}>
+                Sign in
+              </button>
+            </>
+          ) : (
+            <>
+              {!tokenId || !token ? (
+                <p className="auth-error">This link is invalid or has expired. Please request a new one.</p>
+              ) : (
+                <>
+                  {resetError && <p className="auth-error">{resetError}</p>}
+                  <label className="auth-field">
+                    <span>New Password</span>
+                    <div className="password-input-shell">
+                      <input type={showLoginPwd ? 'text' : 'password'} value={resetPwd} onChange={(e) => setResetPwd(e.target.value)}
+                        placeholder="Min. 8 characters" autoComplete="new-password" autoFocus />
+                      <button type="button" className="password-toggle" onClick={() => setShowLoginPwd((p) => !p)} aria-label={showLoginPwd ? 'Hide' : 'Show'}><Icon name={showLoginPwd ? 'eye-off' : 'eye'} /></button>
+                    </div>
+                  </label>
+                  <label className="auth-field">
+                    <span>Confirm Password</span>
+                    <div className="password-input-shell">
+                      <input type={showLoginPwd ? 'text' : 'password'} value={resetConfirmPwd} onChange={(e) => setResetConfirmPwd(e.target.value)}
+                        onKeyDown={(e) => { if (e.key === 'Enter') void handleResetPassword(tokenId, token, purpose); }}
+                        placeholder="Repeat password" autoComplete="new-password" />
+                    </div>
+                  </label>
+                  <button className="primary-button" type="button" disabled={resetLoading} style={{ width: '100%' }} onClick={() => void handleResetPassword(tokenId, token, purpose)}>
+                    {resetLoading ? 'Saving…' : title}
+                  </button>
+                </>
+              )}
+              <button className="auth-link-btn" type="button" onClick={() => navigate('/login', { replace: true })}>Back to sign in</button>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ─── Auth gate — show login if no active session ──────────────────────────
+
+  if (!session) {
+    return (
+      <div className="auth-page">
+        <div className="auth-card">
+          <div className="auth-brand">WealthTrack</div>
+          <h2 className="auth-title">Sign in to your account</h2>
+          {loginError && <p className="auth-error">{loginError}</p>}
+          <label className="auth-field">
+            <span>Email address</span>
+            <input type="email" autoFocus value={loginEmail} onChange={(e) => setLoginEmail(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Tab') return; if (e.key === 'Enter') void handleLogin(); }}
+              placeholder="you@company.com" autoComplete="email" />
+          </label>
+          <label className="auth-field">
+            <span>Password</span>
+            <div className="password-input-shell">
+              <input type={showLoginPwd ? 'text' : 'password'} value={loginPassword} onChange={(e) => setLoginPassword(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') void handleLogin(); }}
+                placeholder="Enter your password" autoComplete="current-password" />
+              <button type="button" className="password-toggle" onClick={() => setShowLoginPwd((p) => !p)} aria-label={showLoginPwd ? 'Hide' : 'Show'}><Icon name={showLoginPwd ? 'eye-off' : 'eye'} /></button>
+            </div>
+          </label>
+          <button className="primary-button" type="button" disabled={loginLoading} style={{ width: '100%' }} onClick={() => void handleLogin()}>
+            {loginLoading ? 'Signing in…' : 'Sign in'}
+          </button>
+          <button className="auth-link-btn" type="button" onClick={() => { setLoginError(''); navigate('/forgot-password'); }}>
+            Forgot your password?
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoggedOut) {
+    return (
+      <div className="error-boundary-fallback" role="main">
+        <div className="error-boundary-card">
+          <h2>You've been signed out</h2>
+          <p>Your session has ended. Sign back in to continue where you left off.</p>
+          <div className="error-boundary-actions">
+            <button type="button" className="primary-button" onClick={() => setIsLoggedOut(false)}>
+              Sign in again
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className={sidebarCollapsed ? 'app-shell app-shell-sidebar-collapsed' : 'app-shell'}>
       <div className={mobileNavOpen ? 'mobile-scrim mobile-scrim-open' : 'mobile-scrim'} onClick={() => setMobileNavOpen(false)} aria-hidden={!mobileNavOpen} />
@@ -6022,10 +6439,11 @@ function App() {
               className="user-chip"
               type="button"
               onClick={() => openDialog({
-                title: 'End current session',
-                description: 'Sign out from the dashboard shell. This is treated as a protected action because it interrupts the current admin workflow.',
-                confirmLabel: 'Log out',
-                tone: 'danger',
+                title: 'Sign out',
+                description: 'You will be signed out of the dashboard.',
+                confirmLabel: 'Sign out',
+                tone: 'default',
+                onConfirm: handleLogout,
               })}
             >
               <span className="user-avatar">PA</span>
@@ -6190,6 +6608,27 @@ function App() {
       {renderInvestmentDrawer()}
       {renderManagerDrawer()}
       {renderReportDrawer()}
+
+      {showIdleWarning ? (
+        <div className="dialog-scrim" role="presentation">
+          <div className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="idle-warning-title">
+            <div className="dialog-header">
+              <h3 id="idle-warning-title">Still there?</h3>
+            </div>
+            <p className="dialog-copy">
+              You've been inactive for a while. You'll be signed out in 5 minutes unless you continue.
+            </p>
+            <div className="dialog-actions">
+              <button className="secondary-button" type="button" onClick={handleLogout}>
+                Sign out now
+              </button>
+              <button className="primary-button" type="button" onClick={() => setShowIdleWarning(false)}>
+                Stay signed in
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {dialogIntent ? (
         <div className="dialog-scrim" role="presentation">

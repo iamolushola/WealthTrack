@@ -50,9 +50,12 @@ export interface AuthSessionRow {
   revokedAt: string | null;
 }
 
+export type PasswordResetTokenPurpose = 'forgot_password' | 'set_password' | 'change_password';
+
 export interface PasswordResetTokenRow {
   id: string;
   userId: string;
+  purpose: PasswordResetTokenPurpose;
   tokenHash: string;
   status: 'issued' | 'used' | 'expired' | 'revoked';
   expiresAt: string;

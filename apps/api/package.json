@@ -6,7 +6,7 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "npm run build && concurrently -k -n build,api -c cyan,green \"npm run dev:build\" \"npm run dev:start\"",
     "dev:build": "tsc -w -p tsconfig.build.json --preserveWatchOutput",
-    "dev:start": "tsx watch dist/apps/api/src/main.js",
+    "dev:start": "tsx watch --env-file=../../.env dist/apps/api/src/main.js",
     "start": "tsx dist/apps/api/src/main.js",
     "start:dev": "npm run dev"
   },
@@ -19,14 +19,16 @@
     "class-validator": "^0.14.1",
     "ioredis": "^5.4.1",
     "mysql2": "^3.11.3",
+    "nodemailer": "^8.0.7",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
   },
   "devDependencies": {
-    "@types/node": "^22.10.1",
     "@nestjs/cli": "^11.0.0",
     "@nestjs/schematics": "^11.0.0",
     "@nestjs/testing": "^11.0.0",
+    "@types/node": "^22.10.1",
+    "@types/nodemailer": "^8.0.0",
     "concurrently": "^9.2.1",
     "typescript": "^5.6.3"
   }

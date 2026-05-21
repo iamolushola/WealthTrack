@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { AuthSessionRow, LoginAttemptRow, PasswordResetTokenRow } from '@wealthtrack/shared-types';
+import { AuthSessionRow, LoginAttemptRow, PasswordResetTokenRow, PasswordResetTokenPurpose } from '@wealthtrack/shared-types';
 import { MysqlService } from '../../../persistence/mysql/mysql.service';
 import {
   AuthSessionRepository,
@@ -32,13 +32,30 @@ export class MysqlPasswordResetTokenRepository implements PasswordResetTokenRepo
   constructor(private readonly mysql: MysqlService) {}
 
   async create(token: PasswordResetTokenRow): Promise<void> {
-    await this.mysql.execute('INSERT INTO password_reset_tokens SET ?', [token]);
+    await this.mysql.execute(
+      'INSERT INTO password_reset_tokens (id, user_id, purpose, token_hash, status, expires_at, used_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+      [token.id, token.userId, token.purpose, token.tokenHash, token.status, token.expiresAt, token.usedAt ?? null, token.createdAt],
+    );
   }
 
   findIssuedToken(id: string): Promise<PasswordResetTokenRow | null> {
     return this.mysql.selectOne<PasswordResetTokenRow>(
-      'SELECT * FROM password_reset_tokens WHERE id = ? AND status = ? LIMIT 1',
+      'SELECT * FROM password_reset_tokens WHERE id = ? AND status = ? AND expires_at > UTC_TIMESTAMP(3) LIMIT 1',
       [id, 'issued'],
+    );
+  }
+
+  findActiveByUserIdAndPurpose(userId: string, purpose: PasswordResetTokenPurpose): Promise<PasswordResetTokenRow | null> {
+    return this.mysql.selectOne<PasswordResetTokenRow>(
+      'SELECT * FROM password_reset_tokens WHERE user_id = ? AND purpose = ? AND status = ? AND expires_at > UTC_TIMESTAMP(3) ORDER BY created_at DESC LIMIT 1',
+      [userId, purpose, 'issued'],
+    );
+  }
+
+  async revokeAllForUserByPurpose(userId: string, purpose: PasswordResetTokenPurpose, revokedAtIso: string): Promise<void> {
+    await this.mysql.execute(
+      "UPDATE password_reset_tokens SET status = 'revoked', used_at = ? WHERE user_id = ? AND purpose = ? AND status = 'issued'",
+      [revokedAtIso, userId, purpose],
     );
   }
 

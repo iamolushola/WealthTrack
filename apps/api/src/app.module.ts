@@ -2,6 +2,7 @@ import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { HttpLoggerMiddleware } from './common/http-logger.middleware';
 import { RequestIdMiddleware } from './common/request-id.middleware';
 import { JobDispatcherModule } from './common/queues/job-dispatcher.module';
+import { MailerModule } from './common/mailer/mailer.module';
 import { MysqlModule } from './persistence/mysql/mysql.module';
 import { HealthModule } from './modules/health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -26,6 +27,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 @Module({
   imports: [
     JobDispatcherModule,
+    MailerModule,
     MysqlModule,
     HealthModule,
     AuthModule,
