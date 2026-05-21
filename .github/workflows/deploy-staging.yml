@@ -1,82 +1,350 @@
-name: Deploy Staging
+name: Deploy • Staging
 
 on:
   push:
-    branches:
-      - staging
+    branches: [staging]
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Git ref to deploy
+        required: false
+        default: staging
+      force_redeploy:
+        description: Redeploy even if SHA is unchanged
+        type: boolean
+        default: false
+
+concurrency:
+  group: staging-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
-  packages: write
 
 env:
+  NODE_VERSION: "22"
   REGISTRY: ghcr.io
   IMAGE_OWNER: iamolushola
-  IMAGE_TAG: staging
 
 jobs:
-  build-and-push:
+  validate:
+    name: Type-check & compile
     runs-on: ubuntu-latest
-
+    timeout-minutes: 15
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+      - run: npm ci
+      - name: Compile all apps
+        run: |
+          npm run api:build
+          npm run worker:build
+          npm run dashboard:build
+      - name: Job summary
+        if: always()
+        env:
+          REF: ${{ inputs.ref || github.ref }}
+          SHA: ${{ github.sha }}
+        run: |
+          { echo "### Validate"; echo "- ref: \`${REF}\`"; echo "- sha: \`${SHA}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Setup Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+  build-api:
+    name: Build & push API image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
         with:
           registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push API image
-        uses: docker/build-push-action@v6
+      - id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           file: apps/api/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-api:${{ env.IMAGE_TAG }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-api:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-api:staging-latest
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,scope=api,mode=max
+          provenance: false
 
-      - name: Build and push worker image
-        uses: docker/build-push-action@v6
+  build-worker:
+    name: Build & push worker image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           file: apps/worker/Dockerfile
           push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-worker:${{ env.IMAGE_TAG }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-worker:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-worker:staging-latest
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,scope=worker,mode=max
+          provenance: false
 
-      - name: Build and push dashboard image
-        uses: docker/build-push-action@v6
+  build-dashboard:
+    name: Build & push dashboard image
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+      - uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3.4.0
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - id: build
+        uses: docker/build-push-action@471d1dc4e07e5cdedd4c2171150001c434f0b7a4 # v6.15.0
         with:
           context: .
           file: apps/dashboard/Dockerfile
           push: true
-          build-args: |
-            VITE_API_BASE_URL=${{ secrets.STAGING_VITE_API_BASE_URL }}
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-dashboard:${{ env.IMAGE_TAG }}
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-dashboard:${{ github.sha }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/wealthtrack-dashboard:staging-latest
+          build-args: VITE_API_BASE_URL=${{ secrets.STAGING_VITE_API_BASE_URL }}
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,scope=dashboard,mode=max
+          provenance: false
 
   deploy:
+    name: Deploy to staging
+    needs: [build-api, build-worker, build-dashboard]
     runs-on: ubuntu-latest
-    needs: build-and-push
-    environment: staging
-
+    timeout-minutes: 15
+    environment:
+      name: staging
+      url: ${{ vars.STAGING_URL }}
+    permissions:
+      contents: read
+      deployments: write
+    outputs:
+      previous_tag: ${{ steps.snapshot.outputs.previous_tag }}
     steps:
-      - name: Deploy to staging host
-        uses: appleboy/ssh-action@v1.2.0
+      - name: Set up SSH key
+        env:
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/staging_key
+          chmod 600 ~/.ssh/staging_key
+          ssh-keyscan -H "$STAGING_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Snapshot current image tag for rollback
+        id: snapshot
+        env:
+          STAGING_HOST: ${{ secrets.STAGING_HOST }}
+          STAGING_USER: ${{ secrets.STAGING_USER }}
+        run: |
+          PREV=$(ssh -i ~/.ssh/staging_key -o StrictHostKeyChecking=no \
+            "${STAGING_USER}@${STAGING_HOST}" \
+            "grep '^GHCR_IMAGE_TAG=' /opt/wealthtrack-staging/.env.staging 2>/dev/null \
+             | cut -d'=' -f2 || echo staging-latest")
+          echo "previous_tag=${PREV}" >> "$GITHUB_OUTPUT"
+          echo "Previous tag: ${PREV}"
+
+      - name: Deploy (migrate + compose up)
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        env:
+          NEW_TAG: ${{ github.sha }}
+          GHCR_TOKEN: ${{ secrets.STAGING_GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.STAGING_GHCR_USERNAME }}
         with:
           host: ${{ secrets.STAGING_HOST }}
           username: ${{ secrets.STAGING_USER }}
           key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: NEW_TAG,GHCR_TOKEN,GHCR_USERNAME
           script: |
             set -eu
             cd /opt/wealthtrack-staging
-            git fetch origin
-            git checkout staging
-            git reset --hard origin/staging
-            docker login ghcr.io -u ${{ secrets.STAGING_GHCR_USERNAME }} -p ${{ secrets.STAGING_GHCR_TOKEN }}
-            docker compose --env-file .env.staging -f infra/docker/docker-compose.staging.yml pull
-            docker compose --env-file .env.staging -f infra/docker/docker-compose.staging.yml up -d
-            COMPOSE_FILE=infra/docker/docker-compose.staging.yml sh infra/mysql/apply-migrations.sh
+            sed -i "s/^GHCR_IMAGE_TAG=.*/GHCR_IMAGE_TAG=${NEW_TAG}/" .env.staging \
+              || echo "GHCR_IMAGE_TAG=${NEW_TAG}" >> .env.staging
+            set -a; . .env.staging; set +a
+            printf '%s\n' "${GHCR_TOKEN}" | \
+              docker login ghcr.io --username "${GHCR_USERNAME}" --password-stdin
+            git fetch origin && git checkout staging && git reset --hard origin/staging
+            docker compose --env-file .env.staging \
+              -f infra/docker/docker-compose.staging.yml up -d mysql redis
+            RETRIES=30
+            until docker compose --env-file .env.staging \
+              -f infra/docker/docker-compose.staging.yml \
+              exec -T mysql mysqladmin ping -h 127.0.0.1 --silent 2>/dev/null; do
+              RETRIES=$((RETRIES - 1))
+              [ "$RETRIES" -le 0 ] && echo "MySQL never became healthy" && exit 1
+              sleep 2
+            done
+            COMPOSE_FILE=infra/docker/docker-compose.staging.yml \
+              sh infra/mysql/apply-migrations.sh
+            docker compose --env-file .env.staging \
+              -f infra/docker/docker-compose.staging.yml pull
+            docker compose --env-file .env.staging \
+              -f infra/docker/docker-compose.staging.yml up -d
+
+      - name: Job summary
+        if: always()
+        env:
+          SHA: ${{ github.sha }}
+          PREV_TAG: ${{ steps.snapshot.outputs.previous_tag }}
+        run: |
+          { echo "### Deploy"; echo "- tag: \`${SHA}\`"; echo "- prev: \`${PREV_TAG}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+  health-check:
+    name: Health check
+    needs: [build-api, deploy]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      healthy: ${{ steps.probe.outputs.healthy }}
+    steps:
+      - id: probe
+        env:
+          URL: ${{ vars.STAGING_API_URL || vars.STAGING_URL }}/api/v1/health/live
+          EXPECTED_SHA: ${{ github.sha }}
+        run: |
+          ATTEMPTS=10
+          SLEEP=6
+          for i in $(seq 1 $ATTEMPTS); do
+            BODY=$(curl -fsS --max-time 5 "$URL" 2>/dev/null || true)
+            CODE=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$URL" 2>/dev/null || true)
+            if [ "$CODE" = "200" ]; then
+              if echo "$BODY" | grep -q '"status":"ok"' \
+                 && echo "$BODY" | grep -q "\"version\":\"${EXPECTED_SHA}\""; then
+                echo "healthy=true" >> "$GITHUB_OUTPUT"
+                echo "Healthy on attempt $i (sha match)"
+                exit 0
+              fi
+              echo "Attempt $i: 200 but SHA not matched (body: $BODY)"
+            else
+              echo "Attempt $i: HTTP $CODE"
+            fi
+            sleep $SLEEP
+          done
+          echo "healthy=false" >> "$GITHUB_OUTPUT"
+          echo "::error::Health check failed after $ATTEMPTS attempts"
+          exit 1
+
+      - name: Job summary
+        if: always()
+        env:
+          HEALTHY: ${{ steps.probe.outputs.healthy }}
+          SHA: ${{ github.sha }}
+        run: |
+          { echo "### Health Check"; echo "- result: \`${HEALTHY}\`"; echo "- sha: \`${SHA}\`"; } >> "$GITHUB_STEP_SUMMARY"
+
+  rollback:
+    name: Rollback on failure
+    needs: [deploy, health-check]
+    if: failure() && needs.deploy.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Restore previous deployment
+        uses: appleboy/ssh-action@7eaf76671a0d7eec5d98ee897acda4f968735a17 # v1.2.0
+        env:
+          PREV_TAG: ${{ needs.deploy.outputs.previous_tag }}
+          GHCR_TOKEN: ${{ secrets.STAGING_GHCR_TOKEN }}
+          GHCR_USERNAME: ${{ secrets.STAGING_GHCR_USERNAME }}
+        with:
+          host: ${{ secrets.STAGING_HOST }}
+          username: ${{ secrets.STAGING_USER }}
+          key: ${{ secrets.STAGING_SSH_KEY }}
+          envs: PREV_TAG,GHCR_TOKEN,GHCR_USERNAME
+          script: |
+            set -eu
+            cd /opt/wealthtrack-staging
+            printf '%s\n' "${GHCR_TOKEN}" | \
+              docker login ghcr.io --username "${GHCR_USERNAME}" --password-stdin
+            sed -i "s/^GHCR_IMAGE_TAG=.*/GHCR_IMAGE_TAG=${PREV_TAG}/" .env.staging \
+              || echo "GHCR_IMAGE_TAG=${PREV_TAG}" >> .env.staging
+            docker compose --env-file .env.staging \
+              -f infra/docker/docker-compose.staging.yml pull
+            docker compose --env-file .env.staging \
+              -f infra/docker/docker-compose.staging.yml up -d
+            echo "Rolled back to: ${PREV_TAG}"
+
+      - name: Re-verify health after rollback
+        env:
+          URL: ${{ vars.STAGING_API_URL || vars.STAGING_URL }}/api/v1/health/live
+        run: |
+          for i in $(seq 1 10); do
+            CODE=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$URL" 2>/dev/null || true)
+            [ "$CODE" = "200" ] && echo "Service healthy after rollback" && exit 0
+            echo "Attempt $i: HTTP $CODE"
+            sleep 5
+          done
+          echo "::error::Service still unhealthy after rollback"
+          exit 1
+
+  notify:
+    name: Notify
+    needs: [health-check, rollback]
+    if: always() && (needs.health-check.result != 'skipped' || needs.rollback.result != 'skipped')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Post Slack notification
+        env:
+          WEBHOOK: ${{ secrets.SLACK_WEBHOOK_URL }}
+          HC_RESULT: ${{ needs.health-check.result }}
+          RB_RESULT: ${{ needs.rollback.result }}
+          SHA: ${{ github.sha }}
+          REPO: ${{ github.repository }}
+          STAGING_URL: ${{ vars.STAGING_URL }}
+        run: |
+          [ -z "${WEBHOOK:-}" ] && { echo "SLACK_WEBHOOK_URL not set, skipping."; exit 0; }
+          if [ "$HC_RESULT" = "success" ]; then
+            STATUS="deployed successfully"
+          elif [ "$RB_RESULT" = "success" ]; then
+            STATUS="rolled back (health check failed)"
+          else
+            STATUS="DEPLOY FAILED — manual intervention required"
+          fi
+          curl -fsS -X POST -H 'content-type: application/json' \
+            --data "{\"text\":\"[staging] ${STATUS}: \`${REPO}\` @ \`${SHA}\` <${STAGING_URL}|open>\"}" \
+            "$WEBHOOK"

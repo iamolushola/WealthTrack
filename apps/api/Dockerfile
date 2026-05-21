@@ -21,6 +21,9 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
+ARG APP_VERSION=dev
+ENV APP_VERSION=$APP_VERSION
+
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./dist
 
