@@ -18,7 +18,9 @@ permissions:
   contents: read
 
 env:
-  VESTA_APP_NAME: wealthtrack
+  VESTA_APP_API: wealthtrack-api
+  VESTA_APP_WORKER: wealthtrack-worker
+  VESTA_APP_DASHBOARD: wealthtrack-dashboard
   SWR_REGISTRY: swr.af-south-1.myhuaweicloud.com
   SWR_NAMESPACE: credpal-prod
   STAGING_URL: https://wealthtrack-staging.credpal.xyz
@@ -169,7 +171,7 @@ jobs:
           set -uo pipefail
           PREV=$(curl -fsS \
             -H "Authorization: Bearer $VESTA_API_KEY" \
-            "${BASE_URL}/api/v1/apps/${VESTA_APP_NAME}/environments/${ENVIRONMENT}" \
+            "${BASE_URL}/api/v1/apps/${VESTA_APP_API}/environments/${ENVIRONMENT}" \
             2>/dev/null | jq -r '.tag // empty' || echo "")
           if [ -z "$PREV" ]; then
             echo "::warning::Could not determine previous tag; rollback disabled."
@@ -180,12 +182,18 @@ jobs:
       - name: Deploy to Vesta
         run: |
           set -euo pipefail
-          curl -fsS -X POST \
-            "${BASE_URL}/api/v1/apps/${VESTA_APP_NAME}/deploy" \
-            -H 'accept: */*' \
-            -H "Authorization: Bearer $VESTA_API_KEY" \
-            -H 'Content-Type: application/json' \
-            -d "{\"tag\": \"${IMAGE_TAG}\", \"environment\": \"${ENVIRONMENT}\"}"
+          vesta_deploy() {
+            curl -fsS -X POST \
+              "${BASE_URL}/api/v1/apps/${1}/deploy" \
+              -H 'accept: */*' \
+              -H "Authorization: Bearer $VESTA_API_KEY" \
+              -H 'Content-Type: application/json' \
+              -d "{\"tag\": \"${IMAGE_TAG}\", \"environment\": \"${ENVIRONMENT}\"}"
+          }
+          vesta_deploy "${VESTA_APP_API}"
+          vesta_deploy "${VESTA_APP_WORKER}"
+          vesta_deploy "${VESTA_APP_DASHBOARD}"
+          { echo "- Deployed: \`${VESTA_APP_API}\`, \`${VESTA_APP_WORKER}\`, \`${VESTA_APP_DASHBOARD}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
   health-check:
     name: Health check
@@ -234,12 +242,17 @@ jobs:
       - name: Re-deploy previous tag
         run: |
           set -euo pipefail
-          curl -fsS -X POST \
-            "${BASE_URL}/api/v1/apps/${VESTA_APP_NAME}/deploy" \
-            -H 'accept: */*' \
-            -H "Authorization: Bearer $VESTA_API_KEY" \
-            -H 'Content-Type: application/json' \
-            -d "{\"tag\": \"${PREV}\", \"environment\": \"${ENVIRONMENT}\"}"
+          vesta_deploy() {
+            curl -fsS -X POST \
+              "${BASE_URL}/api/v1/apps/${1}/deploy" \
+              -H 'accept: */*' \
+              -H "Authorization: Bearer $VESTA_API_KEY" \
+              -H 'Content-Type: application/json' \
+              -d "{\"tag\": \"${PREV}\", \"environment\": \"${ENVIRONMENT}\"}"
+          }
+          vesta_deploy "${VESTA_APP_API}"
+          vesta_deploy "${VESTA_APP_WORKER}"
+          vesta_deploy "${VESTA_APP_DASHBOARD}"
           { echo "### Rollback"; echo "- Reverted to: \`${PREV}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Verify rollback healthy
@@ -278,5 +291,5 @@ jobs:
         uses: SimonScholz/google-chat-action@main # pinned to match order-pro
         with:
           webhookUrl: "${{ secrets.GOOGLE_CHAT_WEBHOOK_URL }}"
-          title: "${{ steps.status.outputs.STATUS }} · ${{ env.VESTA_APP_NAME }}"
+          title: "${{ steps.status.outputs.STATUS }} · wealthtrack (api, worker, dashboard)"
           jobStatus: "${{ job.status }}"
