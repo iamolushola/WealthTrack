@@ -10,3 +10,12 @@ dist/
 .env.*.local
 
 coverage/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Runtime temp directories
+apps/api/tmp/
+
+# Local tool output
+zizmor*.txt
