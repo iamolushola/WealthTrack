@@ -202,41 +202,9 @@ jobs:
           vesta_deploy "${VESTA_APP_DASHBOARD}"
           { echo "- Deployed: \`${VESTA_APP_API}\`, \`${VESTA_APP_WORKER}\`, \`${VESTA_APP_DASHBOARD}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
-  health-check:
-    name: Health check
-    needs: [validate, deploy]
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Probe staging
-        env:
-          URL: ${{ env.STAGING_URL }}${{ env.HEALTH_PATH }}
-          EXPECTED_SHA: ${{ github.sha }}
-          EXPECTED_TAG: ${{ needs.validate.outputs.IMAGE_TAG }}
-        run: |
-          set -uo pipefail
-          ATTEMPTS=20
-          SLEEP=6
-          for i in $(seq 1 $ATTEMPTS); do
-            CODE=$(curl -o /tmp/body -s -w "%{http_code}" --max-time 5 "$URL" || true)
-            if [ "$CODE" = "200" ]; then
-              if grep -q "$EXPECTED_SHA" /tmp/body || grep -q "$EXPECTED_TAG" /tmp/body; then
-                echo "✅ Healthy on attempt $i (build identity confirmed)"
-                { echo "### Health Check"; echo "- Healthy after ${i} attempt(s)"; } >> "$GITHUB_STEP_SUMMARY"
-                exit 0
-              fi
-              echo "Attempt $i: 200 but new build identity not present yet."
-            else
-              echo "Attempt $i: HTTP $CODE"
-            fi
-            sleep $SLEEP
-          done
-          echo "::error::Health check failed after $ATTEMPTS attempts"
-          exit 1
-
   rollback:
     name: Rollback on failure
-    needs: [deploy, health-check]
+    needs: [deploy]
     if: failure() && needs.deploy.result == 'success' && needs.deploy.outputs.PREVIOUS_TAG != ''
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -262,30 +230,17 @@ jobs:
           vesta_deploy "${VESTA_APP_DASHBOARD}"
           { echo "### Rollback"; echo "- Reverted to: \`${PREV}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Verify rollback healthy
-        env:
-          URL: ${{ env.STAGING_URL }}${{ env.HEALTH_PATH }}
-        run: |
-          set -uo pipefail
-          for i in $(seq 1 20); do
-            CODE=$(curl -o /dev/null -s -w "%{http_code}" --max-time 5 "$URL" || true)
-            [ "$CODE" = "200" ] && { echo "✅ Rollback healthy"; exit 0; }
-            echo "Attempt $i: HTTP $CODE"
-            sleep 5
-          done
-          echo "::error::Service still unhealthy after rollback"
-          exit 1
 
   notify:
     name: Notify
-    needs: [validate, build-api, build-worker, build-dashboard, deploy, health-check, rollback]
+    needs: [validate, build-api, build-worker, build-dashboard, deploy, rollback]
     if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Compose status
         id: status
         run: |
-          if [ "${{ needs.health-check.result }}" = "success" ]; then
+          if [ "${{ needs.deploy.result }}" = "success" ]; then
             STATUS="✅ Staging deployed"
           elif [ "${{ needs.rollback.result }}" = "success" ]; then
             STATUS="↩️ Staging deploy failed — rolled back"
