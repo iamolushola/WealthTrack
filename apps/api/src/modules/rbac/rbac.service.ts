@@ -3,7 +3,7 @@ import { RoleRow } from '@wealthtrack/shared-types';
 import { createId, nowIso } from '../../common/utils/ids';
 import { MysqlPermissionRepository, MysqlRolePermissionRepository, MysqlRoleRepository } from './repositories/mysql-rbac.repositories';
 
-const SYSTEM_ROLE_CODES = ['admin', 'analyst', 'uploader'] as const;
+const SYSTEM_ROLE_CODES = ['super_admin', 'admin', 'analyst', 'uploader', 'ops_manager', 'compliance_officer', 'viewer'] as const;
 
 @Injectable()
 export class RbacService {

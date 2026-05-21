@@ -31,10 +31,16 @@ export class AnalyticsController {
   async customerPortfolio(
     @Query('page') page?: string,
     @Query('pageSize') pageSize?: string,
+    @Query('q') q?: string,
+    @Query('customerType') customerType?: string,
   ): Promise<object> {
     const p = Math.max(1, Number(page) || 1);
     const ps = Math.min(100, Math.max(10, Number(pageSize) || 25));
-    return this.analyticsService.customerPortfolio(p, ps);
+    const filter = {
+      ...(q && { q }),
+      ...(customerType === 'new' || customerType === 'returning' ? { customerType } : {}),
+    };
+    return this.analyticsService.customerPortfolio(p, ps, Object.keys(filter).length > 0 ? filter : undefined);
   }
 
   @RequirePermissions('dashboard.customer_portfolio.read')
@@ -45,7 +51,7 @@ export class AnalyticsController {
 
   @RequirePermissions('dashboard.wealth_manager.read')
   @Get('wealth-managers')
-  async wealthManagers(): Promise<object> {
-    return this.analyticsService.wealthManagers();
+  async wealthManagers(@Query('q') q?: string): Promise<object> {
+    return this.analyticsService.wealthManagers(q ? { q } : undefined);
   }
 }

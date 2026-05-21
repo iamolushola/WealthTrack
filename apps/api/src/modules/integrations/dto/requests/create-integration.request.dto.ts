@@ -4,8 +4,8 @@ export class CreateIntegrationRequestDto {
   @IsString()
   name!: string;
 
-  @IsEnum(['api', 'database'])
-  sourceType!: 'api' | 'database';
+  @IsEnum(['api', 'database', 'google_sheets'])
+  sourceType!: 'api' | 'database' | 'google_sheets';
 
   @IsString()
   secretRef!: string;

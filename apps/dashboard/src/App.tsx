@@ -201,6 +201,8 @@ type InvestmentRecordItem = {
   recordStatus: 'valid' | 'invalid' | 'duplicate' | 'archived';
   createdAt: string;
   updatedAt: string;
+  team: string | null;
+  days2Maturity: number | null;
 };
 
 type InvestmentsOverview = {
@@ -213,6 +215,52 @@ type InvestmentsOverview = {
     recordCount: number;
     totalInvestment: number;
     confirmedValidCount: number;
+  };
+};
+
+type CommissionRecordItem = {
+  id: string;
+  customerId: string;
+  customerName: string;
+  customerType: 'new' | 'returning';
+  relationshipManager: string | null;
+  investmentAmount: string;
+  mobilisationDate: string;
+  fundType: 'inflow' | 'rollover';
+  tenorDays: number;
+  investmentReference: string | null;
+  currency: string;
+  sourceChannel: string | null;
+  importStatus: string;
+  wmNtbComm: string | null;
+  wmRetnComm: string | null;
+  tmNtbComm: string | null;
+  tmRetnComm: string | null;
+  omNtbComm: string | null;
+  omRetnComm: string | null;
+  ooNtbComm: string | null;
+  ooRetnComm: string | null;
+  wpFundsComm: string | null;
+  wpTeamComm: string | null;
+};
+
+type CommissionsOverviewData = {
+  items: CommissionRecordItem[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+  summary: {
+    wmNtbTotal: number;
+    wmRetnTotal: number;
+    tmNtbTotal: number;
+    tmRetnTotal: number;
+    omNtbTotal: number;
+    omRetnTotal: number;
+    ooNtbTotal: number;
+    ooRetnTotal: number;
+    wpFundsTotal: number;
+    wpTeamTotal: number;
   };
 };
 
@@ -279,7 +327,7 @@ type WealthManagersOverview = {
 type UploadHistoryItem = {
   id: string;
   fileName: string;
-  status: 'pending' | 'processing' | 'validated' | 'failed' | 'imported' | 'partially_imported' | 'cancelled';
+  status: 'pending' | 'processing' | 'validated' | 'importing' | 'failed' | 'imported' | 'partially_imported' | 'cancelled';
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -295,35 +343,26 @@ type UploadHistoryOverview = {
   count: number;
 };
 
-type AuditLogItem = {
-  id: string;
-  actorId: string | null;
-  actorRole: string;
-  action: string;
-  resourceType: string;
-  resourceId: string;
-  outcome: 'success' | 'failed' | 'partial_success';
-  createdAt: string;
-};
-
-type AuditOverview = {
-  items: AuditLogItem[];
-  count: number;
-};
-
 type IntegrationItem = {
   id: string;
   name: string;
-  sourceType: 'api' | 'database';
+  sourceType: 'api' | 'database' | 'google_sheets';
   status: 'active' | 'inactive' | 'failed';
   syncFrequency: 'manual' | 'daily' | 'weekly' | 'monthly';
   lastTestedAt: string | null;
   lastSuccessfulSyncAt: string | null;
 };
 
-type IntegrationsOverview = {
-  items: IntegrationItem[];
-  count: number;
+type SheetTabItem = {
+  id: string;
+  integrationSourceId: string;
+  sheetId: string;
+  sheetTitle: string;
+  rangeNotation: string;
+  columnMapping: Record<string, string>;
+  status: 'active' | 'ignored';
+  lastSyncedAt: string | null;
+  lastRowCount: number | null;
 };
 
 type UserItem = {
@@ -379,6 +418,7 @@ type ViewId =
   | 'portfolio'
   | 'investments'
   | 'wealth-managers'
+  | 'commissions'
   | 'uploads'
   | 'reports'
   | 'users'
@@ -404,7 +444,7 @@ type ListRow = {
 };
 
 type Notice = {
-  tone: 'good' | 'warn';
+  tone: 'good' | 'info' | 'warn';
   message: string;
 };
 
@@ -413,9 +453,39 @@ type DialogIntent = {
   description: string;
   confirmLabel: string;
   tone: 'default' | 'danger';
+  onConfirm?: () => Promise<void> | void;
 };
 
-type RangeOption = '7D' | '30D' | 'Quarter' | 'YTD';
+type DatePreset = 'all' | '7D' | '30D' | '90D' | 'quarter' | 'ytd' | 'custom';
+
+type DetailRoute =
+  | { kind: 'customer'; data: PortfolioCustomer; from: string }
+  | { kind: 'investment'; data: InvestmentRecordItem; from: string }
+  | { kind: 'manager'; data: WealthManagerRecord; from: string }
+  | null;
+const DATE_PRESETS: Array<{ id: DatePreset; label: string }> = [
+  { id: 'all', label: 'All time' },
+  { id: '7D', label: 'Last 7D' },
+  { id: '30D', label: 'Last 30D' },
+  { id: '90D', label: 'Last 90D' },
+  { id: 'quarter', label: 'This quarter' },
+  { id: 'ytd', label: 'YTD' },
+  { id: 'custom', label: 'Custom' },
+];
+
+function presetToDateRange(preset: DatePreset): { from: string; to: string } {
+  const today = new Date();
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const fmt = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  const todayStr = fmt(today);
+  if (preset === 'all' || preset === 'custom') return { from: '', to: '' };
+  if (preset === '7D') { const f = new Date(today); f.setDate(today.getDate() - 6); return { from: fmt(f), to: todayStr }; }
+  if (preset === '30D') { const f = new Date(today); f.setDate(today.getDate() - 29); return { from: fmt(f), to: todayStr }; }
+  if (preset === '90D') { const f = new Date(today); f.setDate(today.getDate() - 89); return { from: fmt(f), to: todayStr }; }
+  if (preset === 'quarter') { const f = new Date(today.getFullYear(), Math.floor(today.getMonth() / 3) * 3, 1); return { from: fmt(f), to: todayStr }; }
+  if (preset === 'ytd') { const f = new Date(today.getFullYear(), 0, 1); return { from: fmt(f), to: todayStr }; }
+  return { from: '', to: '' };
+}
 
 type IconName =
   | 'grid'
@@ -449,7 +519,7 @@ type IconName =
   | 'eye-off'
   | 'edit';
 
-const rangeOptions: RangeOption[] = ['7D', '30D', 'Quarter', 'YTD'];
+
 
 const customerTabs: Array<{ id: CustomerStatus; label: string }> = [
   { id: 'all', label: 'All customers' },
@@ -466,12 +536,22 @@ const dashboardRequestHeaders = {
     'dashboard.customer_portfolio.read',
     'dashboard.wealth_manager.read',
     'uploads.history.read',
+    'uploads.csv.create',
+    'uploads.delete',
+    'uploads.preview.read',
+    'uploads.import.confirm',
     'users.read',
     'users.create',
     'users.update',
     'users.deactivate',
     'settings.update',
     'reports.export',
+    'integrations.read',
+    'integrations.create',
+    'integrations.update',
+    'integrations.delete',
+    'integrations.sync.trigger',
+    'integrations.logs.read',
   ].join(','),
 };
 
@@ -492,25 +572,22 @@ const chartToneColors = {
   muted: '#8891A5',
 };
 
-function formatCurrency(value: number | null | undefined): string {
+const CURRENCY_SYMBOLS: Record<string, string> = { NGN: '₦', USD: '$', GBP: '£', EUR: '€' };
+
+function formatCurrencyCode(code: string | null | undefined): string {
+  return CURRENCY_SYMBOLS[code ?? ''] ?? (code || 'NGN');
+}
+
+function formatCurrency(value: number | null | undefined, currencyCode = 'NGN'): string {
   if (value === null || value === undefined || Number.isNaN(value)) {
     return '--';
   }
 
-  const absolute = Math.abs(value);
-  if (absolute >= 1_000_000_000) {
-    return `NGN ${(value / 1_000_000_000).toFixed(1)}B`;
-  }
-
-  if (absolute >= 1_000_000) {
-    return `NGN ${(value / 1_000_000).toFixed(1)}M`;
-  }
-
-  if (absolute >= 1_000) {
-    return `NGN ${(value / 1_000).toFixed(1)}K`;
-  }
-
-  return `NGN ${value.toFixed(0)}`;
+  const symbol = CURRENCY_SYMBOLS[currencyCode] ?? currencyCode;
+  return `${symbol}${new Intl.NumberFormat('en-NG', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value)}`;
 }
 
 function formatCount(value: number | null | undefined): string {
@@ -559,6 +636,19 @@ function formatCustomerType(value: 'new' | 'returning'): string {
   return value === 'new' ? 'New' : 'Returning';
 }
 
+function backLabelFromPath(from: string): string {
+  if (from.startsWith('/portfolio')) return 'Back to Customers';
+  if (from.startsWith('/investments')) return 'Back to Investments';
+  if (from.startsWith('/wealth-managers')) return 'Back to Managers';
+  if (from.startsWith('/uploads')) return 'Back to Uploads';
+  if (from.startsWith('/reports')) return 'Back to Reports';
+  if (from.startsWith('/users')) return 'Back to Users';
+  if (from.startsWith('/summary')) return 'Back to Summary';
+  if (from.startsWith('/trends')) return 'Back to Trends';
+  if (from === '/') return 'Back to Home';
+  return 'Back';
+}
+
 function formatTenorLabel(value: string): string {
   return value
     .split('_')
@@ -581,33 +671,38 @@ function getLeadingTenor(tenorExposure: Record<string, number>): { label: string
 }
 
 const navigationItems: NavItem[] = [
+  // Analytics
   { label: 'Overview', icon: 'grid', view: 'summary' },
   { label: 'Trends', icon: 'chart', view: 'trends' },
+  { label: 'Reports', icon: 'file', view: 'reports' },
+  // Portfolio
   { label: 'Customers', icon: 'wallet', view: 'portfolio' },
   { label: 'Investments', icon: 'database', view: 'investments' },
   { label: 'Managers', icon: 'users', view: 'wealth-managers' },
+  { label: 'Commissions', icon: 'spark', view: 'commissions' },
+  // Uploads
   { label: 'Uploads', icon: 'briefcase', view: 'uploads' },
-  { label: 'Reports', icon: 'file', view: 'reports' },
+  // Administration
   { label: 'Team', icon: 'users', view: 'users' },
   { label: 'Settings', icon: 'settings', view: 'settings' },
 ];
 
 const navigationSections: NavSection[] = [
   {
-    title: 'Dashboards',
-    items: navigationItems.filter((item) => ['summary', 'trends', 'portfolio', 'investments', 'wealth-managers'].includes(item.view)),
+    title: 'Analytics',
+    items: navigationItems.filter((item) => ['summary', 'trends', 'reports'].includes(item.view)),
   },
   {
-    title: 'Operations',
-    items: navigationItems.filter((item) => ['uploads', 'reports'].includes(item.view)),
+    title: 'Portfolio',
+    items: navigationItems.filter((item) => ['portfolio', 'investments', 'wealth-managers', 'commissions'].includes(item.view)),
   },
   {
-    title: 'Governance',
-    items: navigationItems.filter((item) => item.view === 'users'),
+    title: 'Uploads',
+    items: navigationItems.filter((item) => item.view === 'uploads'),
   },
   {
-    title: 'System',
-    items: navigationItems.filter((item) => item.view === 'settings'),
+    title: 'Administration',
+    items: navigationItems.filter((item) => ['users', 'settings'].includes(item.view)),
   },
 ];
 
@@ -665,11 +760,23 @@ const views: ViewDefinition[] = [
     label: 'WEALTH Managers',
     title: 'WEALTH Managers',
     badge: 'RM',
-    heroTitle: 'WEALTH manager performance.',
+    heroTitle: 'Wealth manager performance.',
     heroDescription: 'AUM, customer mix, and funds aging by relationship manager.',
     actionLabel: 'Export',
     secondaryActionLabel: 'Refresh',
     periodLabel: 'Manager AUM view',
+    statusLabel: 'Live',
+  },
+  {
+    id: 'commissions',
+    label: 'Commissions',
+    title: 'Commissions',
+    badge: 'RM',
+    heroTitle: 'Manager commission book.',
+    heroDescription: 'AUM and investment performance attributed per relationship manager.',
+    actionLabel: 'Export',
+    secondaryActionLabel: 'Refresh',
+    periodLabel: 'All managers',
     statusLabel: 'Live',
   },
   {
@@ -723,24 +830,13 @@ const views: ViewDefinition[] = [
 ];
 
 
-const panelCopyByView: Record<ViewId, { title: string; description: string }> = {
-  summary: { title: 'Executive Watchlist', description: 'Curated signals that deserve follow-up in the next operating review.' },
-  trends: { title: 'Trend Interpretation', description: 'Keep current movement, volatility, and leading indicators visible beside the primary chart table.' },
-  portfolio: { title: 'Customer Detail Notes', description: 'Compact context blocks help relationship teams assess concentration, recency, and next-best action.' },
-  investments: { title: 'Ledger Review', description: 'Inspect record-level investment data, source status, and maturity timing from the database.' },
-  'wealth-managers': { title: 'Manager Coaching Notes', description: 'Use the page to flag concentration, customer growth, and recovery opportunities by RM.' },
-  uploads: { title: 'Validation Workflow', description: 'The workflow is grouped clearly so operational steps do not collapse into one crowded card.' },
-  reports: { title: 'Delivery Controls', description: 'Report scheduling, format, and queue visibility stay grouped in one consistent workbench.' },
-  users: { title: 'Team Management', description: 'Manage admin accounts, roles, and permissions for the platform.' },
-  settings: { title: 'Configuration Workspace', description: 'Group related controls into cards with helper text and safer save actions.' },
-};
-
 const emptyStateCopyByView: Record<ViewId, { title: string; description: string }> = {
   summary: { title: 'No summary signals match that search', description: 'Try a broader keyword to restore the executive overview rows.' },
   trends: { title: 'No trend rows match that search', description: 'Use a broader search term or reset filters to inspect the full trend set.' },
   portfolio: { title: 'No customers match that search', description: 'Search by another customer name or ID to restore the ranked portfolio list.' },
   investments: { title: 'No investment records match that search', description: 'Search by customer, reference, source channel, or relationship manager.' },
   'wealth-managers': { title: 'No managers match that search', description: 'Clear the current search to recover the full relationship-manager leaderboard.' },
+  commissions: { title: 'No commission records', description: 'No investment records are attributed to a relationship manager.' },
   uploads: { title: 'No upload records match that search', description: 'Reset the filters to review pending batches and error reports.' },
   reports: { title: 'No report jobs match that search', description: 'Try another keyword to bring queued and completed exports back into view.' },
   users: { title: 'No users match that search', description: 'Clear the search to restore the team list.' },
@@ -815,8 +911,6 @@ function getActionLabel(view: ViewId): string {
       return 'Review batch';
     case 'reports':
       return 'Open report';
-    case 'integrations':
-      return 'Inspect sync';
     case 'users':
       return 'Manage access';
     case 'settings':
@@ -838,10 +932,6 @@ function getSearchPlaceholder(view: ViewId): string {
       return 'Search customer or RM';
     case 'uploads':
       return 'Search batch';
-    case 'audit':
-      return 'Search audit';
-    case 'integrations':
-      return 'Search source';
     case 'users':
       return 'Search team';
     case 'settings':
@@ -930,81 +1020,16 @@ function formatDurationMinutes(start: string, end: string | null): number | null
   return Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / 60000));
 }
 
-function filterReportsByRange(items: ReportExportItem[], range: RangeOption): ReportExportItem[] {
-  const now = new Date();
-  const lowerBound = new Date(now);
-
-  if (range === '7D') {
-    lowerBound.setDate(now.getDate() - 6);
-  } else if (range === '30D') {
-    lowerBound.setDate(now.getDate() - 29);
-  } else if (range === 'Quarter') {
-    lowerBound.setMonth(now.getMonth() - 2, 1);
-  } else {
-    lowerBound.setMonth(0, 1);
-  }
-
-  lowerBound.setHours(0, 0, 0, 0);
-
+function filterByDateRange(items: ReportExportItem[], from: string, to: string): ReportExportItem[] {
+  if (!from && !to) return items;
+  const lower = from ? new Date(`${from}T00:00:00`) : null;
+  const upper = to   ? new Date(`${to}T23:59:59`)   : null;
   return items.filter((item) => {
-    const createdAt = new Date(item.createdAt);
-    return !Number.isNaN(createdAt.getTime()) && createdAt >= lowerBound;
-  });
-}
-
-function buildReportTrendData(items: ReportExportItem[], range: RangeOption): Array<{ label: string; value: number }> {
-  const now = new Date();
-
-  if (range === '7D') {
-    const buckets = Array.from({ length: 7 }, (_, index) => {
-      const date = new Date(now);
-      date.setDate(now.getDate() - (6 - index));
-      date.setHours(0, 0, 0, 0);
-      return {
-        key: date.toISOString().slice(0, 10),
-        label: date.toLocaleDateString([], { weekday: 'short' }),
-      };
-    });
-
-    return buckets.map((bucket) => ({
-      label: bucket.label,
-      value: items.filter((item) => item.createdAt.slice(0, 10) === bucket.key).length,
-    }));
-  }
-
-  if (range === '30D') {
-    return Array.from({ length: 6 }, (_, index) => {
-      const start = new Date(now);
-      start.setDate(now.getDate() - (29 - index * 5));
-      start.setHours(0, 0, 0, 0);
-      const end = new Date(start);
-      end.setDate(start.getDate() + 4);
-      end.setHours(23, 59, 59, 999);
-
-      return {
-        label: `W${index + 1}`,
-        value: items.filter((item) => {
-          const createdAt = new Date(item.createdAt);
-          return createdAt >= start && createdAt <= end;
-        }).length,
-      };
-    });
-  }
-
-  const monthCount = range === 'Quarter' ? 3 : now.getMonth() + 1;
-
-  return Array.from({ length: monthCount }, (_, index) => {
-    const monthDate = new Date(now.getFullYear(), range === 'Quarter' ? now.getMonth() - (2 - index) : index, 1);
-    const month = monthDate.getMonth();
-    const year = monthDate.getFullYear();
-
-    return {
-      label: monthDate.toLocaleDateString([], { month: 'short' }),
-      value: items.filter((item) => {
-        const createdAt = new Date(item.createdAt);
-        return createdAt.getMonth() === month && createdAt.getFullYear() === year;
-      }).length,
-    };
+    const d = new Date(item.createdAt);
+    if (Number.isNaN(d.getTime())) return false;
+    if (lower && d < lower) return false;
+    if (upper && d > upper) return false;
+    return true;
   });
 }
 
@@ -1101,9 +1126,12 @@ function App() {
     return window.matchMedia('(prefers-color-scheme: dark)').matches;
   });
   const [selectedUploadName, setSelectedUploadName] = useState('');
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [reportsRefreshKey, setReportsRefreshKey] = useState(0);
   const [portfolioPage, setPortfolioPage] = useState(1);
   const [investmentsPage, setInvestmentsPage] = useState(1);
+  const [commissionsPage, setCommissionsPage] = useState(1);
   const [usersTab, setUsersTab] = useState<'admins' | 'roles'>('admins');
   const [settingsTab, setSettingsTab] = useState<'profile' | 'security' | 'config' | 'notifications'>('profile');
   const [profileForm, setProfileForm] = useState({ firstName: '', lastName: '', email: '', userType: '' });
@@ -1118,14 +1146,16 @@ function App() {
   const [editForm, setEditForm] = useState({ name: '', email: '', roleCode: '', status: '' });
   const [showInvitePwd, setShowInvitePwd] = useState(false);
   const [showInviteConfirmPwd, setShowInviteConfirmPwd] = useState(false);
-  const [showEditPwd, setShowEditPwd] = useState(false);
   const [newRoleForm, setNewRoleForm] = useState({ name: '', code: '', description: '' });
+  const [showCreateRoleDrawer, setShowCreateRoleDrawer] = useState(false);
+  const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
+  const [savedRoleId, setSavedRoleId] = useState<string | null>(null);
   const [reportsOverview, setReportsOverview] = useState<ReportsOverviewState>({
     status: 'idle',
     items: [],
     error: null,
   });
-  const [health, setHealth] = useState<HealthState>({
+  const [, setHealth] = useState<HealthState>({
     status: 'idle',
     label: 'Checking API readiness',
     details: API_BASE_URL,
@@ -1143,6 +1173,7 @@ function App() {
       '/portfolio': 'portfolio',
       '/investments': 'investments',
       '/wealth-managers': 'wealth-managers',
+      '/commissions': 'commissions',
       '/uploads': 'uploads',
       '/reports': 'reports',
       '/users': 'users',
@@ -1150,12 +1181,71 @@ function App() {
     };
     return pathMap[location.pathname] ?? 'portfolio';
   }, [location.pathname]);
+
+  const detailRoute = useMemo<DetailRoute>(() => {
+    const state = location.state as Record<string, unknown> | null;
+    const from = (state?.from as string | undefined) ?? '';
+    if (location.pathname.startsWith('/portfolio/') && location.pathname.length > '/portfolio/'.length) {
+      const customer = state?.customer as PortfolioCustomer | undefined;
+      if (customer?.customerId) return { kind: 'customer', data: customer, from: from || '/portfolio' };
+    }
+    if (location.pathname.startsWith('/investments/') && location.pathname.length > '/investments/'.length) {
+      const investment = state?.investment as InvestmentRecordItem | undefined;
+      if (investment?.id) return { kind: 'investment', data: investment, from: from || '/investments' };
+    }
+    if (location.pathname.startsWith('/wealth-managers/') && location.pathname.length > '/wealth-managers/'.length) {
+      const manager = state?.manager as WealthManagerRecord | undefined;
+      if (manager?.relationshipManager) return { kind: 'manager', data: manager, from: from || '/wealth-managers' };
+    }
+    return null;
+  }, [location.pathname, location.state]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [debouncedQuery, setDebouncedQuery] = useState('');
   const [activeCustomerStatus, setActiveCustomerStatus] = useState<CustomerStatus>('all');
-  const [activeRange, setActiveRange] = useState<RangeOption>('30D');
+
+  type InvestmentFilterState = {
+    customerType: '' | 'new' | 'returning';
+    fundType: '' | 'inflow' | 'rollover';
+    importStatus: '' | 'confirmed' | 'pending' | 'rejected';
+    tenorCategory: '' | 'short_term' | 'mid_short_term' | 'medium_term' | 'long_term';
+    from: string;
+    to: string;
+  };
+  type CommissionFilterState = {
+    customerType: '' | 'new' | 'returning';
+    fundType: '' | 'inflow' | 'rollover';
+    from: string;
+    to: string;
+  };
+
+  const emptyInvestmentFilters: InvestmentFilterState = { customerType: '', fundType: '', importStatus: '', tenorCategory: '', from: '', to: '' };
+  const emptyCommissionFilters: CommissionFilterState = { customerType: '', fundType: '', from: '', to: '' };
+
+  const [investmentFilters, setInvestmentFilters] = useState<InvestmentFilterState>(emptyInvestmentFilters);
+  const [commissionFilters, setCommissionFilters] = useState<CommissionFilterState>(emptyCommissionFilters);
+  const [openFilterPanel, setOpenFilterPanel] = useState<'investments' | 'commissions' | 'managers' | null>(null);
+
+  type ManagerFilterState = { customerFocus: '' | 'new' | 'returning' };
+  const emptyManagerFilters: ManagerFilterState = { customerFocus: '' };
+  const [managerFilters, setManagerFilters] = useState<ManagerFilterState>(emptyManagerFilters);
+  // Per-page date filter state
+  const [summaryPreset, setSummaryPreset] = useState<DatePreset>('all');
+  const [summaryFrom, setSummaryFrom] = useState(() => presetToDateRange('all').from);
+  const [summaryTo, setSummaryTo] = useState(() => presetToDateRange('all').to);
+  const [summaryRefreshKey, setSummaryRefreshKey] = useState(0);
+
+  const [reportsPreset, setReportsPreset] = useState<DatePreset>('all');
+  const [reportsFrom, setReportsFrom] = useState(() => presetToDateRange('all').from);
+  const [reportsTo, setReportsTo] = useState(() => presetToDateRange('all').to);
+
+  const [trendsPreset, setTrendsPreset] = useState<DatePreset>('all');
   const [dialogIntent, setDialogIntent] = useState<DialogIntent | null>(null);
   const [isDialogBusy, setIsDialogBusy] = useState(false);
   const [notice, setNotice] = useState<Notice | null>(null);
+  const [customerDrawer, setCustomerDrawer] = useState<PortfolioCustomer | null>(null);
+  const [investmentDrawer, setInvestmentDrawer] = useState<InvestmentRecordItem | null>(null);
+  const [managerDrawer, setManagerDrawer] = useState<WealthManagerRecord | null>(null);
+  const [reportDrawer, setReportDrawer] = useState<ReportExportItem | null>(null);
   const [summaryOverview, setSummaryOverview] = useState<RequestState<SummaryOverview>>({
     status: 'idle',
     data: null,
@@ -1172,6 +1262,11 @@ function App() {
     error: null,
   });
   const [investmentsOverview, setInvestmentsOverview] = useState<RequestState<InvestmentsOverview>>({
+    status: 'idle',
+    data: null,
+    error: null,
+  });
+  const [commissionsOverview, setCommissionsOverview] = useState<RequestState<CommissionsOverviewData>>({
     status: 'idle',
     data: null,
     error: null,
@@ -1196,6 +1291,12 @@ function App() {
     data: null,
     error: null,
   });
+  const [integrationsState, setIntegrationsState] = useState<RequestState<{ items: IntegrationItem[]; count: number }>>({ status: 'idle', data: null, error: null });
+  const [gSheetFormOpen, setGSheetFormOpen] = useState(false);
+  const [gSheetForm, setGSheetForm] = useState({ name: '', spreadsheetUrl: '', credentialsJson: '', syncFrequency: 'daily' as 'manual' | 'daily' | 'weekly' | 'monthly' });
+  const [gSheetBusy, setGSheetBusy] = useState<string | null>(null);
+  const [integrationTabs, setIntegrationTabs] = useState<Record<string, SheetTabItem[]>>({});
+  const [expandedIntegration, setExpandedIntegration] = useState<string | null>(null);
 
   async function fetchViewData<T>(path: string): Promise<T> {
     const response = await fetch(`${API_BASE_URL}/${path}`, {
@@ -1262,8 +1363,37 @@ function App() {
 
   useEffect(() => {
     setSearchQuery('');
+    setActiveCustomerStatus('all');
+    setInvestmentFilters(emptyInvestmentFilters);
+    setCommissionFilters(emptyCommissionFilters);
+    setManagerFilters(emptyManagerFilters);
+    setOpenFilterPanel(null);
     setMobileNavOpen(false);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      setDebouncedQuery(searchQuery);
+      setInvestmentsPage(1);
+      setPortfolioPage(1);
+      setCommissionsPage(1);
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [searchQuery]);
+
+  // When on a detail-route URL but no state (e.g. direct URL entry or expired state),
+  // redirect to the parent list view so the page is never blank.
+  useEffect(() => {
+    const detailPrefixes = ['/investments/', '/portfolio/', '/wealth-managers/'];
+    const isDetailPath = detailPrefixes.some(
+      (prefix) => location.pathname.startsWith(prefix) && location.pathname.length > prefix.length,
+    );
+    if (isDetailPath && detailRoute === null) {
+      const parent = '/' + location.pathname.split('/')[1];
+      navigate(parent, { replace: true });
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.pathname, detailRoute]);
 
   useEffect(() => {
     if (!notice) {
@@ -1335,14 +1465,21 @@ function App() {
   }, [currentView, reportsRefreshKey]);
 
   useEffect(() => {
-    if (!['summary', 'trends'].includes(currentView) || summaryOverview.status !== 'idle') {
+    if (!['summary', 'reports'].includes(currentView)) {
       return undefined;
     }
 
     let cancelled = false;
     setSummaryOverview({ status: 'loading', data: null, error: null });
 
-    void fetchViewData<SummaryOverview>('dashboard/summary')
+    const params = new URLSearchParams();
+    const from = currentView === 'reports' ? reportsFrom : summaryFrom;
+    const to = currentView === 'reports' ? reportsTo : summaryTo;
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
+    const qs = params.toString();
+
+    void fetchViewData<SummaryOverview>(`dashboard/summary${qs ? `?${qs}` : ''}`)
       .then((data) => {
         if (!cancelled) {
           setSummaryOverview({ status: 'ready', data, error: null });
@@ -1362,10 +1499,10 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
+  }, [currentView, reportsFrom, reportsTo, summaryFrom, summaryTo, summaryRefreshKey]);
 
   useEffect(() => {
-    if (currentView !== 'trends') {
+    if (!['summary', 'trends', 'reports'].includes(currentView)) {
       return undefined;
     }
 
@@ -1373,8 +1510,10 @@ function App() {
     setTrendsOverview({ status: 'loading', data: null, error: null });
 
     const params = new URLSearchParams();
-    if (trendsFrom) params.set('from', trendsFrom);
-    if (trendsTo) params.set('to', trendsTo);
+    const from = currentView === 'summary' ? summaryFrom : currentView === 'reports' ? reportsFrom : trendsFrom;
+    const to = currentView === 'summary' ? summaryTo : currentView === 'reports' ? reportsTo : trendsTo;
+    if (from) params.set('from', from);
+    if (to) params.set('to', to);
     const qs = params.toString();
 
     void fetchViewData<TrendsOverview>(`dashboard/trends${qs ? `?${qs}` : ''}`)
@@ -1397,7 +1536,7 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, trendsFrom, trendsTo]);
+  }, [currentView, reportsFrom, reportsTo, summaryFrom, summaryTo, summaryRefreshKey, trendsFrom, trendsTo]);
 
   useEffect(() => {
     if (currentView !== 'portfolio') {
@@ -1407,7 +1546,7 @@ function App() {
     let cancelled = false;
     setPortfolioOverview((prev) => ({ ...prev, status: 'loading', error: null }));
 
-    void fetchViewData<CustomerPortfolioOverview>(`dashboard/customer-portfolio?page=${portfolioPage}&pageSize=25`)
+    void fetchViewData<CustomerPortfolioOverview>(`dashboard/customer-portfolio?page=${portfolioPage}&pageSize=25${debouncedQuery ? `&q=${encodeURIComponent(debouncedQuery)}` : ''}`)
       .then((data) => {
         if (!cancelled) {
           setPortfolioOverview({ status: 'ready', data, error: null });
@@ -1427,7 +1566,7 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, portfolioPage]);
+  }, [currentView, portfolioPage, debouncedQuery]);
 
   useEffect(() => {
     if (currentView !== 'investments') {
@@ -1437,7 +1576,16 @@ function App() {
     let cancelled = false;
     setInvestmentsOverview((prev) => ({ ...prev, status: 'loading', error: null }));
 
-    void fetchViewData<InvestmentsOverview>(`investments?page=${investmentsPage}&pageSize=50`)
+    const investmentParams = new URLSearchParams({ page: String(investmentsPage), pageSize: '50' });
+    if (debouncedQuery) investmentParams.set('q', debouncedQuery);
+    if (investmentFilters.customerType) investmentParams.set('customerType', investmentFilters.customerType);
+    if (investmentFilters.fundType) investmentParams.set('fundType', investmentFilters.fundType);
+    if (investmentFilters.importStatus) investmentParams.set('importStatus', investmentFilters.importStatus);
+    if (investmentFilters.tenorCategory) investmentParams.set('tenorCategory', investmentFilters.tenorCategory);
+    if (investmentFilters.from) investmentParams.set('from', investmentFilters.from);
+    if (investmentFilters.to) investmentParams.set('to', investmentFilters.to);
+
+    void fetchViewData<InvestmentsOverview>(`investments?${investmentParams.toString()}`)
       .then((data) => {
         if (!cancelled) {
           setInvestmentsOverview({ status: 'ready', data, error: null });
@@ -1457,7 +1605,44 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, investmentsPage]);
+  }, [currentView, investmentsPage, debouncedQuery, investmentFilters]);
+
+  useEffect(() => {
+    if (currentView !== 'commissions') {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setCommissionsOverview((prev) => ({ ...prev, status: 'loading', error: null }));
+
+    const commissionParams = new URLSearchParams({ page: String(commissionsPage), pageSize: '50' });
+    if (debouncedQuery) commissionParams.set('q', debouncedQuery);
+    if (commissionFilters.customerType) commissionParams.set('customerType', commissionFilters.customerType);
+    if (commissionFilters.fundType) commissionParams.set('fundType', commissionFilters.fundType);
+    if (commissionFilters.from) commissionParams.set('from', commissionFilters.from);
+    if (commissionFilters.to) commissionParams.set('to', commissionFilters.to);
+
+    void fetchViewData<CommissionsOverviewData>(`investments/commissions?${commissionParams.toString()}`)
+      .then((data) => {
+        if (!cancelled) {
+          setCommissionsOverview({ status: 'ready', data, error: null });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setCommissionsOverview({
+            status: 'error',
+            data: null,
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, commissionsPage, debouncedQuery, commissionFilters]);
 
   useEffect(() => {
     if (currentView !== 'wealth-managers' || wealthManagersOverview.status !== 'idle') {
@@ -1603,6 +1788,18 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, usersTab]);
 
+  // Load integrations when Settings → Config tab is open
+  useEffect(() => {
+    if (currentView !== 'settings' || settingsTab !== 'config' || integrationsState.status !== 'idle') return undefined;
+    let cancelled = false;
+    setIntegrationsState({ status: 'loading', data: null, error: null });
+    void fetchViewData<{ items: IntegrationItem[]; count: number }>('integrations')
+      .then((data) => { if (!cancelled) setIntegrationsState({ status: 'ready', data, error: null }); })
+      .catch((err: unknown) => { if (!cancelled) setIntegrationsState({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentView, settingsTab]);
+
   const currentDefinition = views.find((view) => view.id === currentView) ?? views[0];
   const summaryData = summaryOverview.data;
   const trendsData = trendsOverview.data;
@@ -1613,7 +1810,7 @@ function App() {
   const uploadItems = uploadsOverview.data?.items ?? [];
   const userItems = usersOverview.data?.items ?? [];
   const settingsData = settingsOverview.data;
-  const reportItemsInRange = filterReportsByRange(reportsOverview.items, activeRange);
+  const reportItemsInRange = filterByDateRange(reportsOverview.items, reportsFrom, reportsTo);
   const reportRows: ListRow[] = reportItemsInRange.map((item) => {
     const statusLabel = item.status === 'pending' ? 'Queued' : item.status.charAt(0).toUpperCase() + item.status.slice(1);
     const completion = item.completedAt ? `Completed ${formatReportTime(item.completedAt)}` : `Created ${formatReportTime(item.createdAt)}`;
@@ -1872,6 +2069,68 @@ function App() {
       ];
     }
 
+    if (currentView === 'commissions') {
+      const s = commissionsOverview.data?.summary;
+      const totalItems = commissionsOverview.data?.totalItems ?? 0;
+      const wpTotal = (s?.wpFundsTotal ?? 0) + (s?.wpTeamTotal ?? 0);
+      const wmTotal = (s?.wmNtbTotal ?? 0) + (s?.wmRetnTotal ?? 0);
+      const tmTotal = (s?.tmNtbTotal ?? 0) + (s?.tmRetnTotal ?? 0);
+      const omTotal = (s?.omNtbTotal ?? 0) + (s?.omRetnTotal ?? 0);
+      const ooTotal = (s?.ooNtbTotal ?? 0) + (s?.ooRetnTotal ?? 0);
+      const grandTotal = wpTotal + wmTotal + tmTotal + omTotal + ooTotal;
+
+      return [
+        {
+          label: 'Total Commission',
+          value: grandTotal > 0 ? formatCurrency(grandTotal) : '--',
+          helper: 'Sum of all commission categories across all records',
+          tone: grandTotal > 0 ? 'good' : 'neutral',
+          delta: `${formatCount(totalItems)} investment records`,
+          icon: 'wallet',
+        },
+        {
+          label: 'WP Funds Commission',
+          value: s ? formatCurrency(s.wpFundsTotal) : '--',
+          helper: 'Wealth Point funds commission (WP.Funds.Comm)',
+          tone: (s?.wpFundsTotal ?? 0) > 0 ? 'good' : 'neutral',
+          delta: s ? `WP Team: ${formatCurrency(s.wpTeamTotal)}` : 'Loading',
+          icon: 'spark',
+        },
+        {
+          label: 'WM Commission',
+          value: wmTotal > 0 ? formatCurrency(wmTotal) : '--',
+          helper: 'Wealth Manager NTB + Returning commissions',
+          tone: wmTotal > 0 ? 'good' : 'neutral',
+          delta: s ? `NTB: ${formatCurrency(s.wmNtbTotal)} · Retn: ${formatCurrency(s.wmRetnTotal)}` : 'Loading',
+          icon: 'users',
+        },
+        {
+          label: 'TM Commission',
+          value: tmTotal > 0 ? formatCurrency(tmTotal) : '--',
+          helper: 'Team Manager NTB + Returning commissions',
+          tone: tmTotal > 0 ? 'good' : 'neutral',
+          delta: s ? `NTB: ${formatCurrency(s.tmNtbTotal)} · Retn: ${formatCurrency(s.tmRetnTotal)}` : 'Loading',
+          icon: 'briefcase',
+        },
+        {
+          label: 'OM Commission',
+          value: omTotal > 0 ? formatCurrency(omTotal) : '--',
+          helper: 'Operations Manager NTB + Returning commissions',
+          tone: omTotal > 0 ? 'good' : 'neutral',
+          delta: s ? `NTB: ${formatCurrency(s.omNtbTotal)} · Retn: ${formatCurrency(s.omRetnTotal)}` : 'Loading',
+          icon: 'database',
+        },
+        {
+          label: 'OO Commission',
+          value: ooTotal > 0 ? formatCurrency(ooTotal) : '--',
+          helper: 'Operations Officer NTB + Returning commissions',
+          tone: ooTotal > 0 ? 'good' : 'neutral',
+          delta: s ? `NTB: ${formatCurrency(s.ooNtbTotal)} · Retn: ${formatCurrency(s.ooRetnTotal)}` : 'Loading',
+          icon: 'shield',
+        },
+      ];
+    }
+
     if (currentView === 'uploads') {
       return [
         {
@@ -2105,6 +2364,8 @@ function App() {
         return investmentsOverview;
       case 'wealth-managers':
         return wealthManagersOverview;
+      case 'commissions':
+        return commissionsOverview;
       case 'uploads':
         return uploadsOverview;
       case 'users':
@@ -2128,45 +2389,27 @@ function App() {
     return haystack.includes(searchQuery.trim().toLowerCase());
   });
   const filteredCustomers = portfolioItems.filter((customer) => {
-    const query = searchQuery.trim().toLowerCase();
-    const haystack = `${customer.customerName} ${customer.customerId} ${customer.customerType}`.toLowerCase();
-    const matchesSearch = haystack.includes(query);
-    const matchesStatus = activeCustomerStatus === 'all' || customer.customerType === activeCustomerStatus;
-
-    return matchesSearch && matchesStatus;
+    return activeCustomerStatus === 'all' || customer.customerType === activeCustomerStatus;
   });
   const filteredWealthManagers = wealthManagerItems.filter((manager) => {
     const query = searchQuery.trim().toLowerCase();
-    const haystack = [
-      manager.relationshipManager,
-      manager.totalAum,
-      manager.totalInvestment,
-      manager.investmentAccountCount,
-      manager.ntbMetrics?.customerCount,
-      manager.ntbMetrics?.volume,
-      manager.returningCustomerMetrics?.customerCount,
-      manager.returningCustomerMetrics?.volume,
-      manager.topCustomers.map((customer) => customer.customerName).join(' '),
-    ].join(' ').toLowerCase();
-
-    return haystack.includes(query);
+    if (query) {
+      const haystack = [
+        manager.relationshipManager,
+        ...manager.topCustomers.map((c) => c.customerName),
+      ].join(' ').toLowerCase();
+      if (!haystack.includes(query)) return false;
+    }
+    if (managerFilters.customerFocus === 'new') {
+      return manager.ntbMetrics.customerCount >= manager.returningCustomerMetrics.customerCount;
+    }
+    if (managerFilters.customerFocus === 'returning') {
+      return manager.returningCustomerMetrics.customerCount > manager.ntbMetrics.customerCount;
+    }
+    return true;
   });
-  const filteredInvestmentItems = investmentItems.filter((item) => {
-    const query = searchQuery.trim().toLowerCase();
-    const haystack = [
-      item.customerName,
-      item.customerId,
-      item.investmentReference,
-      item.relationshipManager,
-      item.sourceChannel,
-      item.fundType,
-      item.tenorCategory,
-      item.recordStatus,
-      item.importStatus,
-    ].join(' ').toLowerCase();
-
-    return haystack.includes(query);
-  });
+  // Investments are filtered server-side; use items from API response directly.
+  const filteredInvestmentItems = investmentItems;
   const filteredCountLabel = `${filteredRows.length} of ${currentRows.length} visible`;
 
   function selectView(view: ViewId): void {
@@ -2176,10 +2419,9 @@ function App() {
       portfolio: '/portfolio',
       investments: '/investments',
       'wealth-managers': '/wealth-managers',
+      commissions: '/commissions',
       uploads: '/uploads',
       reports: '/reports',
-      audit: '/audit',
-      integrations: '/integrations',
       users: '/users',
       settings: '/settings',
     };
@@ -2214,48 +2456,66 @@ function App() {
     setDialogIntent(intent);
   }
 
+  function processUploadFile(file: File): void {
+    if (!file.name.toLowerCase().endsWith('.csv')) {
+      setNotice({ tone: 'warn', message: 'Only CSV files are supported.' });
+      return;
+    }
+    setUploadedFile(file);
+    setSelectedUploadName(file.name);
+    setNotice(null);
+  }
+
   function handleUploadSelection(event: React.ChangeEvent<HTMLInputElement>): void {
     const file = event.target.files?.[0];
+    if (!file) return;
+    processUploadFile(file);
+  }
 
-    if (!file) {
-      setSelectedUploadName('');
-      return;
-    }
+  function handleDragOver(event: React.DragEvent): void {
+    event.preventDefault();
+    setIsDragOver(true);
+  }
 
-    setSelectedUploadName(file.name);
+  function handleDragLeave(event: React.DragEvent): void {
+    event.preventDefault();
+    setIsDragOver(false);
+  }
 
-    if (!file.name.toLowerCase().endsWith('.csv')) {
-      setNotice({
-        tone: 'warn',
-        message: 'XLSX is not supported yet. Upload a CSV file from the Uploads page.',
-      });
-      return;
-    }
-
-    setNotice({
-      tone: 'good',
-      message: `${file.name} selected for CSV validation.`,
-    });
+  function handleDrop(event: React.DragEvent): void {
+    event.preventDefault();
+    setIsDragOver(false);
+    const file = event.dataTransfer.files?.[0];
+    if (file) processUploadFile(file);
   }
 
   async function confirmDialog(): Promise<void> {
-    if (!dialogIntent) {
-      return;
-    }
-
+    if (!dialogIntent) return;
     setIsDialogBusy(true);
-
-    await new Promise((resolve) => {
-      window.setTimeout(resolve, 600);
-    });
-
-    setIsDialogBusy(false);
-    setDialogIntent(null);
-    setNotice({
-      tone: dialogIntent.tone === 'danger' ? 'warn' : 'good',
-      message: `${dialogIntent.confirmLabel} has been queued from the current workspace view.`,
-    });
+    try {
+      if (dialogIntent.onConfirm) {
+        await dialogIntent.onConfirm();
+      }
+    } catch (err: unknown) {
+      setNotice({ tone: 'warn', message: err instanceof Error ? err.message : 'Action failed.' });
+    } finally {
+      setIsDialogBusy(false);
+      setDialogIntent(null);
+    }
   }
+
+  function updateInvestmentFilter<K extends keyof InvestmentFilterState>(key: K, value: InvestmentFilterState[K]): void {
+    setInvestmentFilters((prev) => ({ ...prev, [key]: value }));
+    setInvestmentsPage(1);
+  }
+
+  function updateCommissionFilter<K extends keyof CommissionFilterState>(key: K, value: CommissionFilterState[K]): void {
+    setCommissionFilters((prev) => ({ ...prev, [key]: value }));
+    setCommissionsPage(1);
+  }
+
+  const activeInvestmentFilterCount = Object.values(investmentFilters).filter((v) => v !== '').length;
+  const activeCommissionFilterCount = Object.values(commissionFilters).filter((v) => v !== '').length;
 
   function renderInvestmentRecords(): ReactNode {
     if (investmentsOverview.status === 'loading' && filteredInvestmentItems.length === 0) {
@@ -2294,23 +2554,77 @@ function App() {
                 placeholder="Search by customer, reference, manager, or status"
               />
             </div>
-            <button className="customer-filter-button" type="button">
+            <button
+              className={`customer-filter-button${openFilterPanel === 'investments' ? ' customer-filter-button-active' : ''}`}
+              type="button"
+              onClick={() => setOpenFilterPanel(openFilterPanel === 'investments' ? null : 'investments')}
+            >
               <Icon name="filter" />
               Ledger filters
+              {activeInvestmentFilterCount > 0 && <span className="filter-badge">{activeInvestmentFilterCount}</span>}
             </button>
-            <button className="secondary-button customer-export-button" type="button" onClick={() => openDialog({ title: 'Export investment records', description: 'Prepare the visible investment ledger rows using the current search.', confirmLabel: 'Export records', tone: 'default' })}>
+            <button className="secondary-button customer-export-button" type="button" onClick={() => setNotice({ tone: 'warn', message: 'Investment export is not yet configured on this environment.' })}>
               Export
             </button>
           </div>
+          {openFilterPanel === 'investments' && (
+            <div className="filter-panel">
+              <div className="filter-panel-section">
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Customer Class</span>
+                  <div className="filter-pills">
+                    {([['', 'All'], ['new', 'NTB'], ['returning', 'Returning']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} type="button" className={`filter-pill${investmentFilters.customerType === val ? ' filter-pill-active' : ''}`} onClick={() => updateInvestmentFilter('customerType', val as InvestmentFilterState['customerType'])}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Fund Type</span>
+                  <div className="filter-pills">
+                    {([['', 'All'], ['inflow', 'Inflow'], ['rollover', 'Rollover']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} type="button" className={`filter-pill${investmentFilters.fundType === val ? ' filter-pill-active' : ''}`} onClick={() => updateInvestmentFilter('fundType', val as InvestmentFilterState['fundType'])}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Status</span>
+                  <div className="filter-pills">
+                    {([['', 'All'], ['confirmed', 'Confirmed'], ['pending', 'Pending'], ['rejected', 'Rejected']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} type="button" className={`filter-pill${investmentFilters.importStatus === val ? ' filter-pill-active' : ''}`} onClick={() => updateInvestmentFilter('importStatus', val as InvestmentFilterState['importStatus'])}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Funds Class</span>
+                  <div className="filter-pills">
+                    {([['', 'All'], ['short_term', 'Short Term'], ['mid_short_term', 'Mid-Short'], ['medium_term', 'Medium'], ['long_term', 'Long Term']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} type="button" className={`filter-pill${investmentFilters.tenorCategory === val ? ' filter-pill-active' : ''}`} onClick={() => updateInvestmentFilter('tenorCategory', val as InvestmentFilterState['tenorCategory'])}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Date Range</span>
+                  <div className="filter-date-inputs">
+                    <input type="date" value={investmentFilters.from} onChange={(e) => updateInvestmentFilter('from', e.target.value)} />
+                    <span>–</span>
+                    <input type="date" value={investmentFilters.to} onChange={(e) => updateInvestmentFilter('to', e.target.value)} />
+                  </div>
+                </div>
+              </div>
+              {activeInvestmentFilterCount > 0 && (
+                <button type="button" className="filter-panel-clear" onClick={() => { setInvestmentFilters(emptyInvestmentFilters); setInvestmentsPage(1); }}>Clear all filters</button>
+              )}
+            </div>
+          )}
         </div>
 
         {filteredInvestmentItems.length === 0 ? (
           <div className="empty-state" role="status" aria-live="polite">
             <div className="empty-state-icon"><Icon name="search" /></div>
-            <h4>No investment records match that search</h4>
-            <p>Search by customer, reference, source channel, relationship manager, or status.</p>
-            <button className="secondary-button" type="button" onClick={() => setSearchQuery('')}>
-              Reset search
+            <h4>No investment records match those filters</h4>
+            <p>Search by customer, reference, source channel, relationship manager, or adjust the active filters.</p>
+            <button className="secondary-button" type="button" onClick={() => { setSearchQuery(''); setInvestmentFilters(emptyInvestmentFilters); setInvestmentsPage(1); }}>
+              Reset search &amp; filters
             </button>
           </div>
         ) : (
@@ -2319,72 +2633,64 @@ function App() {
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th scope="col" className="table-rank-col">Rank</th>
+                    <th scope="col">Investment ID</th>
                     <th scope="col">Customer</th>
+                    <th scope="col">Class</th>
                     <th scope="col">Amount</th>
-                    <th scope="col">Currency</th>
-                    <th scope="col">Type</th>
-                    <th scope="col">Term</th>
-                    <th scope="col">Tenor</th>
-                    <th scope="col">Mobilized</th>
-                    <th scope="col">Maturity</th>
-                    <th scope="col">Manager</th>
-                    <th scope="col">Channel</th>
-                    <th scope="col">Record</th>
-                    <th scope="col">Import</th>
+                    <th scope="col">Inflow</th>
+                    <th scope="col">Rollover</th>
+                    <th scope="col">Act. Officer</th>
+                    <th scope="col">Funds Class</th>
+                    <th scope="col">Days to Maturity</th>
                     <th scope="col">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredInvestmentItems.map((item, index) => {
+                  {filteredInvestmentItems.map((item) => {
                     const statusTone = getToneFromMeta(`${item.recordStatus} ${item.importStatus}`);
-                    const rank = index + 1;
+                    const d2m = item.days2Maturity;
+                    const d2mTone = d2m === null ? 'neutral' : d2m < 0 ? 'danger' : d2m <= 30 ? 'warn' : 'neutral';
 
                     return (
                       <tr key={item.id}>
-                        <td className="table-rank-col">{rank}</td>
                         <td>
                           <div className="table-primary-cell">
-                            <strong>{item.customerName}</strong>
-                            <small>{item.customerId}</small>
+                            <strong style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{item.investmentReference ?? item.id.slice(0, 8)}</strong>
+                            <small>{formatShortDate(item.mobilisationDate)}</small>
                           </div>
                         </td>
                         <td>
-                          <span className="table-value-strong">{formatCurrency(Number(item.investmentAmount))}</span>
+                          <div className="table-primary-cell">
+                            <strong>{item.customerName}</strong>
+                            <small style={{ fontFamily: 'monospace' }}>{item.customerId}</small>
+                          </div>
                         </td>
                         <td>
-                          <span className="table-secondary-copy">{item.currency}</span>
+                          <span className={`pill pill-${item.customerType === 'new' ? 'good' : 'neutral'}`}>
+                            {item.customerType === 'new' ? 'NTB' : 'Returning'}
+                          </span>
+                        </td>
+                        <td><span className="table-value-strong">{formatCurrency(Number(item.investmentAmount))}</span></td>
+                        <td>
+                          {item.fundType === 'inflow'
+                            ? <span className="table-value-strong">{formatCurrency(Number(item.investmentAmount))}</span>
+                            : <span className="table-secondary-copy">—</span>}
                         </td>
                         <td>
-                          <span className="table-secondary-copy">{item.fundType}</span>
+                          {item.fundType === 'rollover'
+                            ? <span className="table-value-strong">{formatCurrency(Number(item.investmentAmount))}</span>
+                            : <span className="table-secondary-copy">—</span>}
+                        </td>
+                        <td><span className="table-secondary-copy">{item.relationshipManager ?? '—'}</span></td>
+                        <td><span className="table-secondary-copy">{formatTenorLabel(item.tenorCategory)}</span></td>
+                        <td>
+                          {d2m === null
+                            ? <span className="table-secondary-copy">—</span>
+                            : <span className={`pill pill-${d2mTone}`}>{d2m < 0 ? `${Math.abs(d2m)}d overdue` : `${d2m}d`}</span>}
                         </td>
                         <td>
-                          <span className="table-secondary-copy">{formatTenorLabel(item.tenorCategory)}</span>
-                        </td>
-                        <td>
-                          <span className="table-secondary-copy">{formatCount(item.tenorDays)} days</span>
-                        </td>
-                        <td>
-                          <span className="table-secondary-copy">{formatShortDate(item.mobilisationDate)}</span>
-                        </td>
-                        <td>
-                          <span className="table-secondary-copy">{formatShortDate(item.maturityDate)}</span>
-                        </td>
-                        <td>
-                          <span className="table-secondary-copy">{item.relationshipManager ?? 'Unassigned'}</span>
-                        </td>
-                        <td>
-                          <span className="table-secondary-copy">{item.sourceChannel ?? item.dataSource}</span>
-                        </td>
-                        <td>
-                          <span className={`pill pill-${statusTone}`}>{item.recordStatus}</span>
-                        </td>
-                        <td>
-                          <span className={`pill pill-${statusTone}`}>{item.importStatus}</span>
-                        </td>
-                        <td>
-                          <button className="table-action" type="button" onClick={() => openDialog({ title: item.customerName, description: item.investmentReference ?? item.id, confirmLabel: 'View record', tone: statusTone === 'warn' ? 'danger' : 'default' })}>
-                            View record
+                          <button className="primary-cta-button" type="button" onClick={() => setInvestmentDrawer(item)}>
+                            View Details
                             <Icon name="launch" />
                           </button>
                         </td>
@@ -2437,20 +2743,49 @@ function App() {
                 placeholder="Search by WEALTH manager, AUM, or top customer"
               />
             </div>
-            <button className="customer-filter-button" type="button">
+            <button
+              className={`customer-filter-button${openFilterPanel === 'managers' ? ' customer-filter-button-active' : ''}`}
+              type="button"
+              onClick={() => setOpenFilterPanel(openFilterPanel === 'managers' ? null : 'managers')}
+            >
               <Icon name="filter" />
               AUM filters
+              {managerFilters.customerFocus !== '' && <span className="filter-badge">1</span>}
             </button>
-            <button className="secondary-button customer-export-button" type="button" onClick={() => openDialog({ title: 'Export WEALTH managers', description: 'Prepare the visible WEALTH manager AUM and funds-aging view for export.', confirmLabel: 'Export managers', tone: 'default' })}>
+            <button className="secondary-button customer-export-button" type="button" onClick={() => setNotice({ tone: 'warn', message: 'Manager export is not yet configured on this environment.' })}>
               Export
             </button>
           </div>
+          {openFilterPanel === 'managers' && (
+            <div className="filter-panel">
+              <div className="filter-panel-section">
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Customer Focus</span>
+                  <div className="filter-pills">
+                    {([['', 'All managers'], ['new', 'NTB-dominant'], ['returning', 'Returning-dominant']] as [string, string][]).map(([val, label]) => (
+                      <button
+                        key={val}
+                        type="button"
+                        className={`filter-pill${managerFilters.customerFocus === val ? ' filter-pill-active' : ''}`}
+                        onClick={() => setManagerFilters({ customerFocus: val as ManagerFilterState['customerFocus'] })}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+              {managerFilters.customerFocus !== '' && (
+                <button type="button" className="filter-panel-clear" onClick={() => setManagerFilters(emptyManagerFilters)}>Clear filter</button>
+              )}
+            </div>
+          )}
         </div>
 
         {wealthManagersOverview.status === 'loading' && filteredWealthManagers.length === 0 ? (
           <div className="empty-state" role="status" aria-live="polite">
             <div className="empty-state-icon"><Icon name="refresh" /></div>
-            <h4>Loading WEALTH manager performance</h4>
+            <h4>Loading Wealth manager performance</h4>
             <p>Fetching manager AUM, NTB, returning customer, and funds-aging aggregates from uploaded investments.</p>
           </div>
         ) : filteredWealthManagers.length === 0 ? (
@@ -2467,26 +2802,20 @@ function App() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th scope="col" className="table-rank-col">Rank</th>
+                  <th scope="col" className="table-rank-col">#</th>
                   <th scope="col">Manager</th>
+                  <th scope="col">Customers</th>
                   <th scope="col">AUM</th>
-                  <th scope="col">Accounts</th>
-                  <th scope="col">NTB</th>
-                  <th scope="col">NTB Customers</th>
-                  <th scope="col">Returning</th>
-                  <th scope="col">Returning Customers</th>
-                  <th scope="col">Aging Mix</th>
-                  <th scope="col">Aging Bucket</th>
-                  <th scope="col">Aging Value</th>
+                  <th scope="col">NTB Volume</th>
+                  <th scope="col">Returning Volume</th>
+                  <th scope="col">Inflow</th>
+                  <th scope="col">Rollover</th>
                   <th scope="col">Top Customer</th>
                   <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredWealthManagers.map((manager, index) => {
-                  const agingItems = getFundsAgingDisplayItems(manager.fundsAging);
-                  const agingTotal = agingItems.reduce((sum, item) => sum + item.value, 0);
-                  const dominantBucket = getDominantFundsAgingBucket(manager.fundsAging);
                   const topCustomer = manager.topCustomers[0];
 
                   return (
@@ -2495,38 +2824,24 @@ function App() {
                       <td>
                         <div className="table-primary-cell">
                           <strong>{manager.relationshipManager}</strong>
-                          <small>WEALTH manager</small>
+                          <small>Act. Officer</small>
                         </div>
                       </td>
+                      <td><span className="table-secondary-copy">{formatCount(manager.customerCount)}</span></td>
                       <td><span className="table-value-strong">{formatCurrency(manager.totalAum)}</span></td>
-                      <td><span className="table-secondary-copy">{formatCount(manager.investmentAccountCount)}</span></td>
                       <td><span className="table-value-strong">{formatCurrency(manager.ntbMetrics.volume)}</span></td>
-                      <td><span className="table-secondary-copy">{formatCount(manager.ntbMetrics.customerCount)}</span></td>
                       <td><span className="table-value-strong">{formatCurrency(manager.returningCustomerMetrics.volume)}</span></td>
-                      <td><span className="table-secondary-copy">{formatCount(manager.returningCustomerMetrics.customerCount)}</span></td>
-                      <td>
-                        <div className="wealth-aging-stack compact" aria-label={`${manager.relationshipManager} funds aging distribution`}>
-                          {agingItems.map((item) => (
-                            <span
-                              key={item.key}
-                              className={`wealth-aging-segment wealth-aging-segment-${item.key}`}
-                              title={`${item.label}: ${formatCurrency(item.value)}`}
-                              style={{ width: `${agingTotal ? Math.max((item.value / agingTotal) * 100, item.value > 0 ? 4 : 0) : 0}%` }}
-                            />
-                          ))}
-                        </div>
-                      </td>
-                      <td><span className="table-secondary-copy">{dominantBucket.label}</span></td>
-                      <td><span className="table-value-strong">{formatCurrency(dominantBucket.value)}</span></td>
+                      <td><span className="table-value-strong">{formatCurrency(manager.inflowValue)}</span></td>
+                      <td><span className="table-value-strong">{formatCurrency(manager.rolloverValue)}</span></td>
                       <td>
                         <div className="table-primary-cell">
-                          <strong>{topCustomer?.customerName ?? 'No customer'}</strong>
+                          <strong>{topCustomer?.customerName ?? '—'}</strong>
                           <small>{topCustomer ? formatCurrency(topCustomer.totalInvestment) : 'No record'}</small>
                         </div>
                       </td>
                       <td>
-                        <button className="table-action" type="button" onClick={() => openDialog({ title: manager.relationshipManager, description: 'Open detailed WEALTH manager AUM and customer mix.', confirmLabel: 'View manager', tone: 'default' })}>
-                          View
+                        <button className="primary-cta-button" type="button" onClick={() => setManagerDrawer(manager)}>
+                          View Details
                           <Icon name="launch" />
                         </button>
                       </td>
@@ -2603,11 +2918,7 @@ function App() {
                 placeholder="Search by customer name or customer ID"
               />
             </div>
-            <button className="customer-filter-button" type="button">
-              <Icon name="filter" />
-              Portfolio filters
-            </button>
-            <button className="secondary-button customer-export-button" type="button" onClick={() => openDialog({ title: 'Export customer portfolio', description: 'Prepare the visible ranked customer portfolio using the active customer filter and search query.', confirmLabel: 'Export portfolio', tone: 'default' })}>
+            <button className="secondary-button customer-export-button" type="button" onClick={() => setNotice({ tone: 'warn', message: 'Customer portfolio export is not yet configured on this environment.' })}>
               Export
             </button>
           </div>
@@ -2619,7 +2930,7 @@ function App() {
             <h4>No customers match these filters</h4>
             <p>Reset the customer-type tab or search query to restore the ranked customer portfolio.</p>
             <button className="secondary-button" type="button" onClick={() => { setSearchQuery(''); setActiveCustomerStatus('all'); }}>
-              Reset filters
+              Reset search &amp; filters
             </button>
           </div>
         ) : (
@@ -2627,47 +2938,39 @@ function App() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th scope="col" className="table-rank-col">Rank</th>
+                  <th scope="col" className="table-rank-col">#</th>
                   <th scope="col">Customer</th>
-                  <th scope="col">Total</th>
-                  <th scope="col">Investments</th>
-                  <th scope="col">Share</th>
-                  <th scope="col">Type</th>
+                  <th scope="col">Class</th>
+                  <th scope="col">Total Amount</th>
                   <th scope="col">Inflow</th>
                   <th scope="col">Rollover</th>
-                  <th scope="col">Last Amount</th>
+                  <th scope="col">Investments</th>
+                  <th scope="col">Book Share</th>
                   <th scope="col">Last Date</th>
-                  <th scope="col">Top Term</th>
-                  <th scope="col">Term Value</th>
                   <th scope="col">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {filteredCustomers.map((customer, index) => {
-                  const leadTenor = getLeadingTenor(customer.tenorExposure);
-
                   return (
                     <tr key={customer.customerId}>
                       <td className="table-rank-col">{index + 1}</td>
                       <td>
                         <div className="table-primary-cell">
                           <strong>{customer.customerName}</strong>
-                          <small>{customer.customerId}</small>
+                          <small style={{ fontFamily: 'monospace' }}>{customer.customerId}</small>
                         </div>
                       </td>
+                      <td><span className={`pill pill-${customer.customerType === 'new' ? 'good' : 'neutral'}`}>{customer.customerType === 'new' ? 'NTB' : 'Returning'}</span></td>
                       <td><span className="table-value-strong">{formatCurrency(customer.totalInvestment)}</span></td>
-                      <td><span className="table-secondary-copy">{formatCount(customer.investmentCount)}</span></td>
-                      <td><span className="table-secondary-copy">{formatPercent(customer.contributionPercentage)}</span></td>
-                      <td><span className="pill pill-neutral">{formatCustomerType(customer.customerType)}</span></td>
                       <td><span className="table-value-strong">{formatCurrency(customer.inflowValue)}</span></td>
                       <td><span className="table-value-strong">{formatCurrency(customer.rolloverValue)}</span></td>
-                      <td><span className="table-value-strong">{formatCurrency(customer.lastInvestmentAmount)}</span></td>
+                      <td><span className="table-secondary-copy">{formatCount(customer.investmentCount)}</span></td>
+                      <td><span className="table-secondary-copy">{formatPercent(customer.contributionPercentage)}</span></td>
                       <td><span className="table-secondary-copy">{formatShortDate(customer.lastInvestmentDate)}</span></td>
-                      <td><span className="table-secondary-copy">{leadTenor.label}</span></td>
-                      <td><span className="table-value-strong">{formatCurrency(leadTenor.value)}</span></td>
                       <td>
-                        <button className="table-action" type="button" onClick={() => openDialog({ title: customer.customerName, description: `Open investment history for ${customer.customerId}.`, confirmLabel: 'View history', tone: 'default' })}>
-                          History
+                        <button className="primary-cta-button" type="button" onClick={() => setCustomerDrawer(customer)}>
+                          View Details
                           <Icon name="launch" />
                         </button>
                       </td>
@@ -2686,6 +2989,208 @@ function App() {
           pageSize={25}
           isLoading={portfolioOverview.status === 'loading'}
           onPageChange={setPortfolioPage}
+        />
+      </section>
+    );
+  }
+
+  function renderCommissionsPage(): ReactNode {
+    const allRecords = commissionsOverview.data?.items ?? [];
+    const isLoading = commissionsOverview.status === 'loading';
+    const totalItems = commissionsOverview.data?.totalItems ?? 0;
+    const totalPages = commissionsOverview.data?.totalPages ?? 1;
+    const hasActiveFilters = !!debouncedQuery || activeCommissionFilterCount > 0;
+
+    function commNum(val: string | null | undefined): number {
+      return parseFloat(String(val ?? '0').replace(/,/g, '')) || 0;
+    }
+
+    function rowTotalComm(r: CommissionRecordItem): number {
+      return (
+        commNum(r.wpFundsComm) + commNum(r.wpTeamComm) +
+        commNum(r.wmNtbComm) + commNum(r.wmRetnComm) +
+        commNum(r.tmNtbComm) + commNum(r.tmRetnComm) +
+        commNum(r.omNtbComm) + commNum(r.omRetnComm) +
+        commNum(r.ooNtbComm) + commNum(r.ooRetnComm)
+      );
+    }
+
+    if (isLoading && allRecords.length === 0) {
+      return (
+        <section className="wealth-manager-module panel" aria-label="Commissions loading">
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="refresh" /></div>
+            <h4>Loading commission register</h4>
+            <p>Fetching commission data from investment records.</p>
+          </div>
+        </section>
+      );
+    }
+
+    if (commissionsOverview.status === 'error' && allRecords.length === 0) {
+      return (
+        <section className="wealth-manager-module panel" aria-label="Commissions error">
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="alert" /></div>
+            <h4>Commission register unavailable</h4>
+            <p>{commissionsOverview.error ?? 'The commissions API did not return data.'}</p>
+          </div>
+        </section>
+      );
+    }
+
+    return (
+      <section className="wealth-manager-module panel" aria-label="Commission register">
+        <div className="customer-control-panel">
+          <div className="customer-search-row">
+            <div className="search-input-shell customer-search-shell">
+              <Icon name="search" />
+              <input
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="Search by reference, customer, or manager"
+              />
+            </div>
+            <button
+              className={`customer-filter-button${openFilterPanel === 'commissions' ? ' customer-filter-button-active' : ''}`}
+              type="button"
+              onClick={() => setOpenFilterPanel(openFilterPanel === 'commissions' ? null : 'commissions')}
+            >
+              <Icon name="filter" />
+              Comm. filters
+              {activeCommissionFilterCount > 0 && <span className="filter-badge">{activeCommissionFilterCount}</span>}
+            </button>
+            <button className="secondary-button customer-export-button" type="button" onClick={() => setNotice({ tone: 'warn', message: 'Commission export is not yet configured on this environment.' })}>
+              Export
+            </button>
+          </div>
+          {openFilterPanel === 'commissions' && (
+            <div className="filter-panel">
+              <div className="filter-panel-section">
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Customer Class</span>
+                  <div className="filter-pills">
+                    {([['', 'All'], ['new', 'NTB'], ['returning', 'Returning']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} type="button" className={`filter-pill${commissionFilters.customerType === val ? ' filter-pill-active' : ''}`} onClick={() => updateCommissionFilter('customerType', val as CommissionFilterState['customerType'])}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Fund Type</span>
+                  <div className="filter-pills">
+                    {([['', 'All'], ['inflow', 'Inflow'], ['rollover', 'Rollover']] as [string, string][]).map(([val, label]) => (
+                      <button key={val} type="button" className={`filter-pill${commissionFilters.fundType === val ? ' filter-pill-active' : ''}`} onClick={() => updateCommissionFilter('fundType', val as CommissionFilterState['fundType'])}>{label}</button>
+                    ))}
+                  </div>
+                </div>
+                <div className="filter-panel-group">
+                  <span className="filter-panel-label">Date Range</span>
+                  <div className="filter-date-inputs">
+                    <input type="date" value={commissionFilters.from} onChange={(e) => updateCommissionFilter('from', e.target.value)} />
+                    <span>–</span>
+                    <input type="date" value={commissionFilters.to} onChange={(e) => updateCommissionFilter('to', e.target.value)} />
+                  </div>
+                </div>
+              </div>
+              {activeCommissionFilterCount > 0 && (
+                <button type="button" className="filter-panel-clear" onClick={() => { setCommissionFilters(emptyCommissionFilters); setCommissionsPage(1); }}>Clear all filters</button>
+              )}
+            </div>
+          )}
+        </div>
+
+        {allRecords.length === 0 && !hasActiveFilters ? (
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="database" /></div>
+            <h4>No commission records</h4>
+            <p>No investment records have been imported yet.</p>
+          </div>
+        ) : allRecords.length === 0 ? (
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="search" /></div>
+            <h4>No records match those filters</h4>
+            <p>Try adjusting the search query, customer class, fund type, or date range.</p>
+            <button className="secondary-button" type="button" onClick={() => { setSearchQuery(''); setCommissionFilters(emptyCommissionFilters); setCommissionsPage(1); }}>Reset search &amp; filters</button>
+          </div>
+        ) : (
+          <div className="table-scroll">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Reference</th>
+                  <th scope="col">Customer</th>
+                  <th scope="col">Class</th>
+                  <th scope="col">Amount</th>
+                  <th scope="col">Inflow</th>
+                  <th scope="col">Rollover</th>
+                  <th scope="col">Act. Officer</th>
+                  <th scope="col" title="Wealth Point Funds Commission">WP Funds</th>
+                  <th scope="col">Total Commission</th>
+                  <th scope="col">Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allRecords.map((record) => {
+                  const totalComm = rowTotalComm(record);
+                  const wpFunds = commNum(record.wpFundsComm);
+                  return (
+                    <tr key={record.id}>
+                      <td>
+                        <div className="table-primary-cell">
+                          <strong style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{record.investmentReference ?? '—'}</strong>
+                          <small>{formatShortDate(record.mobilisationDate)}</small>
+                        </div>
+                      </td>
+                      <td>
+                        <div className="table-primary-cell">
+                          <strong>{record.customerName}</strong>
+                          <small style={{ fontFamily: 'monospace' }}>{record.customerId}</small>
+                        </div>
+                      </td>
+                      <td><span className={`pill pill-${record.customerType === 'new' ? 'good' : 'neutral'}`}>{record.customerType === 'new' ? 'NTB' : 'Returning'}</span></td>
+                      <td><span className="table-value-strong">{formatCurrency(parseFloat(record.investmentAmount))}</span></td>
+                      <td>
+                        {record.fundType === 'inflow'
+                          ? <span className="table-value-strong">{formatCurrency(parseFloat(record.investmentAmount))}</span>
+                          : <span className="table-secondary-copy">—</span>}
+                      </td>
+                      <td>
+                        {record.fundType === 'rollover'
+                          ? <span className="table-value-strong">{formatCurrency(parseFloat(record.investmentAmount))}</span>
+                          : <span className="table-secondary-copy">—</span>}
+                      </td>
+                      <td><span className="table-secondary-copy">{record.relationshipManager ?? '—'}</span></td>
+                      <td>
+                        {wpFunds > 0
+                          ? <span className="table-value-strong">{formatCurrency(wpFunds)}</span>
+                          : <span className="table-secondary-copy">—</span>}
+                      </td>
+                      <td>
+                        {totalComm > 0
+                          ? <span className="table-value-strong">{formatCurrency(totalComm)}</span>
+                          : <span className="table-secondary-copy">—</span>}
+                      </td>
+                      <td>
+                        <button className="primary-cta-button" type="button" onClick={() => setInvestmentDrawer(record as unknown as InvestmentRecordItem)}>
+                          View Details
+                          <Icon name="launch" />
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        <Paginator
+          page={commissionsOverview.data?.page ?? commissionsPage}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          pageSize={50}
+          isLoading={isLoading}
+          onPageChange={setCommissionsPage}
         />
       </section>
     );
@@ -2738,49 +3243,188 @@ function App() {
         icon: 'alert',
       },
     ];
-    const trendData = buildReportTrendData(reportItemsInRange, activeRange);
-    const formatMix = [
-      { label: 'CSV', value: reportItemsInRange.filter((item) => item.outputFormat === 'csv').length, color: chartToneColors.good },
-      { label: 'XLSX', value: reportItemsInRange.filter((item) => item.outputFormat === 'xlsx').length, color: chartToneColors.brand },
-      { label: 'PDF', value: reportItemsInRange.filter((item) => item.outputFormat === 'pdf').length, color: chartToneColors.warn },
-    ].filter((item) => item.value > 0);
-    const typeDemand = Object.entries(reportTypeLabels).map(([key, label]) => ({
-      label,
-      value: reportItemsInRange.filter((item) => item.reportType === key).length,
-    })).filter((item) => item.value > 0);
-    const statusMix = [
-      { label: 'Completed', value: completedReports.length, color: chartToneColors.good },
-      { label: 'Queued', value: reportItemsInRange.filter((item) => item.status === 'pending').length, color: chartToneColors.warn },
-      { label: 'Running', value: reportItemsInRange.filter((item) => item.status === 'processing').length, color: chartToneColors.brand },
-      { label: 'Failed', value: failedReports.length, color: '#b74438' },
-    ].filter((item) => item.value > 0);
+    const investingReportSeries = trendsData?.monthly ?? [];
+    const investingBreakdownByPeriod = new Map(
+      (trendsData?.trendBreakdown.monthly ?? []).map((point) => [point.period, point]),
+    );
+    const investingReportRows = investingReportSeries.map((point) => {
+      const breakdown = investingBreakdownByPeriod.get(point.period);
+      const date = new Date(`${point.period}-01T00:00:00`);
+
+      return {
+        period: point.period,
+        label: Number.isNaN(date.getTime())
+          ? point.period
+          : date.toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+        investmentCount: point.investmentCount,
+        totalInvestment: point.totalInvestment,
+        newCustomerCount: breakdown?.newCustomerCount ?? 0,
+        newCustomerInvestment: breakdown?.newCustomerInvestment ?? 0,
+        returningCustomerCount: breakdown?.returningCustomerCount ?? 0,
+        returningCustomerInvestment: breakdown?.returningCustomerInvestment ?? 0,
+      };
+    });
+    const reportGridStroke = 'rgba(20, 41, 37, 0.06)';
+    const investingMetricCards = [
+      { label: 'AUM Investments', value: formatCount(summaryData?.investmentCount), helper: 'Confirmed valid records' },
+      { label: 'AUM Volume', value: formatCurrency(summaryData?.totalInvestment), helper: 'Mobilised investment volume' },
+      { label: 'NTB Customers', value: formatCount(summaryData?.newCustomers.customerCount), helper: 'New-to-bank customers' },
+      { label: 'NTB Volume', value: formatCurrency(summaryData?.newCustomers.investmentValue), helper: 'New-to-bank volume' },
+      { label: 'Returning Customers', value: formatCount(summaryData?.returningCustomers.customerCount), helper: 'Returning customer count' },
+      { label: 'Returning Volume', value: formatCurrency(summaryData?.returningCustomers.investmentValue), helper: 'Returning customer volume' },
+    ];
 
     return (
-      <section className="reports-dashboard" aria-label="Reports overview dashboard">
-        <section className="reports-toolbar panel">
-          <div className="reports-toolbar-copy">
-            <p className="eyebrow">Reporting overview</p>
-            <h2>High-level report operations.</h2>
-            <p>Monitor queue health, export demand, delivery mix, and recent runs from one reporting surface.</p>
+      <div className="trends-charts-page" aria-label="Reports overview dashboard">
+        <section className="panel date-filter-bar">
+          <div className="date-filter-presets">
+            {DATE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={reportsPreset === p.id ? 'range-option range-option-active' : 'range-option'}
+                onClick={() => {
+                  setReportsPreset(p.id);
+                  if (p.id !== 'custom') { const r = presetToDateRange(p.id); setReportsFrom(r.from); setReportsTo(r.to); }
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
           </div>
-
-          <div className="reports-toolbar-actions">
-            <div className="reports-range-group" role="tablist" aria-label="Report window">
-              {rangeOptions.map((option) => (
-                <button key={option} className={option === activeRange ? 'range-option range-option-active' : 'range-option'} type="button" onClick={() => setActiveRange(option)}>
-                  {option}
-                </button>
-              ))}
-            </div>
-            <button className="secondary-button" type="button" onClick={() => openDialog({ title: 'Open report queue', description: 'Open the report processing queue and inspect queued or delayed exports.', confirmLabel: 'Open queue', tone: 'default' })}>
-              {currentDefinition.secondaryActionLabel}
+          <div className="date-filter-inputs">
+            <label className="date-filter-field">
+              <span className="trends-period-label">From</span>
+              <input type="date" className="date-range-input" value={reportsFrom} max={reportsTo || undefined}
+                onChange={(e) => { setReportsFrom(e.target.value); setReportsPreset('custom'); }} />
+            </label>
+            <label className="date-filter-field">
+              <span className="trends-period-label">To</span>
+              <input type="date" className="date-range-input" value={reportsTo} min={reportsFrom || undefined}
+                onChange={(e) => { setReportsTo(e.target.value); setReportsPreset('custom'); }} />
+            </label>
+            {(reportsFrom || reportsTo) && (
+              <button type="button" className="secondary-button" onClick={() => { setReportsFrom(''); setReportsTo(''); setReportsPreset('all'); }}>Clear</button>
+            )}
+            <div className="date-filter-divider" />
+            <button className="secondary-button" type="button" onClick={reloadReportsOverview}>Refresh</button>
+            <button className="secondary-button" type="button" onClick={() => {
+              const count = queuedReports.length;
+              setNotice({ tone: count > 0 ? 'warn' : 'good', message: count > 0 ? `${count} report${count > 1 ? 's' : ''} are currently being processed.` : 'No reports are currently queued.' });
+            }}>
+              Queue
             </button>
-            <button className="secondary-button" type="button" onClick={reloadReportsOverview}>
-              Refresh data
-            </button>
-            <button className="primary-button" type="button" onClick={() => openDialog({ title: 'Create report export', description: 'Create a new report export from the reporting overview dashboard.', confirmLabel: 'Create report', tone: 'default' })}>
+            <button className="primary-button" type="button" onClick={() => setNotice({ tone: 'warn', message: 'Report export creation is not yet available in this environment.' })}>
               {currentDefinition.actionLabel}
             </button>
+          </div>
+          <div className="date-filter-status">
+            {reportsOverview.status === 'loading'
+              ? <span className="pill pill-neutral">Refreshing…</span>
+              : reportsOverview.status === 'error'
+                ? <span className="pill pill-warn">Error</span>
+                : (reportsFrom || reportsTo)
+                  ? <span className="pill pill-good">{reportCount} filtered</span>
+                  : <span className="pill pill-neutral">{reportCount} total</span>}
+          </div>
+        </section>
+
+        <section className="panel reports-table-panel" aria-label="Investing report">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Investing report</p>
+              <h3>Portfolio mobilisation report</h3>
+            </div>
+            <span className="table-count">
+              {(reportsFrom || reportsTo) ? `${reportsFrom || 'Start'} to ${reportsTo || 'Latest'}` : 'All time'}
+            </span>
+          </div>
+
+          {summaryOverview.status === 'error' || trendsOverview.status === 'error' ? (
+            <div className="feedback-banner feedback-warn">
+              Live investing report data is unavailable: {summaryOverview.error ?? trendsOverview.error ?? 'Analytics request failed.'}
+            </div>
+          ) : null}
+
+          <section className="metric-grid" aria-label="Investing report metrics" style={{ marginBottom: 0 }}>
+            {investingMetricCards.map((metric) => (
+              <article key={metric.label} className="metric-card metric-card-neutral">
+                <p>{metric.label}</p>
+                <strong>{metric.value}</strong>
+                <span className="metric-delta metric-delta-neutral">{metric.helper}</span>
+              </article>
+            ))}
+          </section>
+
+          <div className="trends-chart-grid" style={{ marginTop: 14 }}>
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div><p className="eyebrow">AUM</p><h3>Mobilisation by month</h3></div>
+                <strong className="trends-kpi">{formatCurrency(summaryData?.totalInvestment)}</strong>
+              </div>
+              <div className="trends-chart-canvas">
+                <ResponsiveContainer width="100%" height={210}>
+                  <AreaChart data={investingReportRows}>
+                    <defs>
+                      <linearGradient id="reportInvestmentFill" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="5%" stopColor={chartToneColors.brand} stopOpacity={0.22} />
+                        <stop offset="95%" stopColor={chartToneColors.brand} stopOpacity={0.02} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid vertical={false} stroke={reportGridStroke} />
+                    <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} interval="preserveStartEnd" />
+                    <YAxis axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={60} tickFormatter={(v: number) => formatCurrency(v)} />
+                    <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                    <Area type="monotone" dataKey="totalInvestment" name="AUM volume" stroke={chartToneColors.brand} fill="url(#reportInvestmentFill)" strokeWidth={2} dot={false} />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </article>
+
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div><p className="eyebrow">Reconciliation</p><h3>Analytics source</h3></div>
+              </div>
+              <div className="summary-kpi-list">
+                <div className="summary-kpi-row"><span className="trends-period-label">Record scope</span><strong>Confirmed valid investments</strong></div>
+                <div className="summary-kpi-row"><span className="trends-period-label">Date field</span><strong>Mobilisation date</strong></div>
+                <div className="summary-kpi-row"><span className="trends-period-label">Summary status</span><strong>{summaryOverview.status}</strong></div>
+                <div className="summary-kpi-row"><span className="trends-period-label">Trend status</span><strong>{trendsOverview.status}</strong></div>
+              </div>
+            </article>
+          </div>
+
+          <div className="table-scroll" style={{ marginTop: 14 }}>
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th scope="col">Month</th>
+                  <th scope="col">AUM Count</th>
+                  <th scope="col">AUM Volume</th>
+                  <th scope="col">NTB Count</th>
+                  <th scope="col">NTB Volume</th>
+                  <th scope="col">Returning Count</th>
+                  <th scope="col">Returning Volume</th>
+                </tr>
+              </thead>
+              <tbody>
+                {investingReportRows.length > 0 ? investingReportRows.map((row) => (
+                  <tr key={row.period}>
+                    <td><span className="table-value-strong">{row.label}</span></td>
+                    <td><span className="table-secondary-copy">{formatCount(row.investmentCount)}</span></td>
+                    <td><span className="table-value-strong">{formatCurrency(row.totalInvestment)}</span></td>
+                    <td><span className="table-secondary-copy">{formatCount(row.newCustomerCount)}</span></td>
+                    <td><span className="table-secondary-copy">{formatCurrency(row.newCustomerInvestment)}</span></td>
+                    <td><span className="table-secondary-copy">{formatCount(row.returningCustomerCount)}</span></td>
+                    <td><span className="table-secondary-copy">{formatCurrency(row.returningCustomerInvestment)}</span></td>
+                  </tr>
+                )) : (
+                  <tr>
+                    <td colSpan={7}><span className="table-secondary-copy">No confirmed valid investment records in this reporting window.</span></td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
         </section>
 
@@ -2788,153 +3432,51 @@ function App() {
           <div className="feedback-banner feedback-warn">Reports data is unavailable: {reportsOverview.error}</div>
         ) : null}
 
-        <section className="reports-kpi-grid" aria-label="Report KPIs">
+        <section className="metric-grid" aria-label="Report metrics" style={{ marginBottom: 0 }}>
           {reportMetricCards.map((metric) => (
-            <article key={metric.label} className={`metric-card metric-card-${metric.tone} reports-kpi-card`}>
+            <article key={metric.label} className={`metric-card metric-card-${metric.tone}`}>
               <p>{metric.label}</p>
               <strong>{metric.value}</strong>
-              <span className="reports-kpi-helper">{metric.helper}</span>
               <span className={`metric-delta metric-delta-${metric.tone}`}>{metric.delta}</span>
             </article>
           ))}
         </section>
 
-        <section className="reports-overview-grid">
-          <article className="panel reports-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Volume</p>
-                <h3>Exports over time</h3>
-              </div>
-              <span className="table-count">{activeRange}</span>
-            </div>
-            <div className="reports-chart-canvas" aria-label="Exports over time chart">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={trendData}>
-                  <defs>
-                    <linearGradient id="reportsTrendFill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor={chartToneColors.brand} stopOpacity={0.28} />
-                      <stop offset="95%" stopColor={chartToneColors.brand} stopOpacity={0.04} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} stroke="rgba(20, 41, 37, 0.08)" />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 12 }} />
-                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 12 }} />
-                  <Tooltip cursor={{ stroke: chartToneColors.brand, strokeDasharray: '4 4' }} />
-                  <Area type="monotone" dataKey="value" stroke={chartToneColors.brand} fill="url(#reportsTrendFill)" strokeWidth={3} />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
-
-          <article className="panel reports-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Mix</p>
-                <h3>Format distribution</h3>
-              </div>
-              <span className="table-count">Current window</span>
-            </div>
-            <div className="reports-chart-canvas reports-chart-canvas-pie">
-              <ResponsiveContainer width="100%" height="100%">
-                <PieChart>
-                  <Pie data={formatMix} dataKey="value" nameKey="label" innerRadius={62} outerRadius={94} paddingAngle={3}>
-                    {formatMix.map((item) => (
-                      <Cell key={item.label} fill={item.color} />
-                    ))}
-                  </Pie>
-                  <Tooltip />
-                </PieChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="reports-pie-legend">
-              {formatMix.map((item) => (
-                <article key={item.label} className="reports-pie-legend-item">
-                  <span className="reports-pie-dot" style={{ backgroundColor: item.color }} />
-                  <div>
-                    <strong>{item.label}</strong>
-                    <small>{item.value} exports</small>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </article>
-        </section>
-
-        <section className="reports-overview-grid reports-overview-grid-secondary">
-          <article className="panel reports-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Demand</p>
-                <h3>Top report types</h3>
-              </div>
-            </div>
-            <div className="reports-chart-canvas">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={typeDemand} layout="vertical" margin={{ left: 8, right: 8 }}>
-                  <CartesianGrid horizontal={false} stroke="rgba(20, 41, 37, 0.08)" />
-                  <XAxis type="number" allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 12 }} />
-                  <YAxis type="category" dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 12 }} width={92} />
-                  <Tooltip />
-                  <Bar dataKey="value" radius={[0, 10, 10, 0]} fill={chartToneColors.brand} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </article>
-
-          <article className="panel reports-chart-panel">
-            <div className="panel-header compact">
-              <div>
-                <p className="eyebrow">Status</p>
-                <h3>Queue breakdown</h3>
-              </div>
-              <span className="table-count">{reportCount} total</span>
-            </div>
-            <div className="reports-chart-canvas">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={statusMix}>
-                  <CartesianGrid vertical={false} stroke="rgba(20, 41, 37, 0.08)" />
-                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 12 }} />
-                  <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 12 }} />
-                  <Tooltip />
-                  <Bar dataKey="value" radius={[10, 10, 0, 0]}>
-                    {statusMix.map((item) => (
-                      <Cell key={item.label} fill={item.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-            <div className="reports-status-grid">
-              {statusMix.map((item) => (
-                <article key={item.label} className="reports-status-card">
-                  <span className="reports-status-dot" style={{ backgroundColor: item.color }} />
-                  <div>
-                    <strong>{item.label}</strong>
-                    <small>{item.value} jobs</small>
-                  </div>
-                </article>
-              ))}
-            </div>
-          </article>
-        </section>
-
         <section className="panel reports-table-panel">
           <div className="panel-header">
             <div>
-              <p className="eyebrow">Recent runs</p>
-              <h3>Latest report activity</h3>
+              <p className="eyebrow">Export runs</p>
+              <h3>Report activity in range</h3>
             </div>
             <div className="reports-table-actions">
+              <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+                {[
+                  { label: 'Completed', value: completedReports.length, tone: 'good' as const },
+                  { label: 'Queued', value: queuedReports.length, tone: 'warn' as const },
+                  { label: 'Failed', value: failedReports.length, tone: failedReports.length > 0 ? 'warn' as const : 'neutral' as const },
+                ].map((s) => (
+                  <div key={s.label} className="summary-kpi-row" style={{ gap: 6 }}>
+                    <span className="trends-period-label">{s.label}</span>
+                    <strong className={`metric-delta-${s.tone}`}>{s.value}</strong>
+                  </div>
+                ))}
+              </div>
               <div className="search-input-shell reports-table-search">
                 <Icon name="search" />
                 <input
                   value={searchQuery}
                   onChange={(event) => setSearchQuery(event.target.value)}
-                  placeholder="Search report runs"
+                  placeholder="Search by type, format, status…"
                 />
               </div>
-              <button className="secondary-button" type="button" onClick={() => openDialog({ title: 'Download latest report', description: 'Prepare the latest completed report export for download.', confirmLabel: 'Download latest', tone: 'default' })}>
+              <button className="secondary-button" type="button" onClick={() => {
+                const latest = completedReports.find((r) => r.fileUrl);
+                if (latest?.fileUrl) {
+                  window.open(latest.fileUrl, '_blank', 'noreferrer');
+                } else {
+                  setNotice({ tone: 'warn', message: 'No completed report with a download link is available.' });
+                }
+              }}>
                 Download latest
               </button>
             </div>
@@ -2946,52 +3488,64 @@ function App() {
               <h4>Loading reports</h4>
               <p>Fetching live export activity from the reports API.</p>
             </div>
-          ) : filteredRows.length === 0 ? (
+          ) : reportItemsInRange.length === 0 ? (
             <div className="empty-state" role="status" aria-live="polite">
               <div className="empty-state-icon"><Icon name="search" /></div>
               <h4>{emptyStateCopyByView[currentView].title}</h4>
               <p>{emptyStateCopyByView[currentView].description}</p>
-              <button className="secondary-button" type="button" onClick={() => setSearchQuery('')}>
-                Reset search
-              </button>
+              <button className="secondary-button" type="button" onClick={() => setSearchQuery('')}>Reset search</button>
             </div>
           ) : (
             <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th scope="col">Run</th>
-                    <th scope="col">Summary</th>
+                    <th scope="col">Report</th>
+                    <th scope="col">Format</th>
+                    <th scope="col">Requested by</th>
+                    <th scope="col">Created</th>
+                    <th scope="col">Completed</th>
+                    <th scope="col">Size</th>
                     <th scope="col">Status</th>
                     <th scope="col">Action</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredRows.map((row) => {
-                    const tone = getToneFromMeta(row.meta);
-
+                  {reportItemsInRange.filter((item) => {
+                    const q = searchQuery.trim().toLowerCase();
+                    if (!q) return true;
+                    return `${formatReportType(item.reportType)} ${item.outputFormat} ${item.status} ${item.requestedBy}`.toLowerCase().includes(q);
+                  }).map((item) => {
+                    const tone = item.status === 'completed' ? 'good' : item.status === 'failed' ? 'warn' : 'neutral';
                     return (
-                      <tr key={row.primary}>
+                      <tr key={item.id}>
                         <td>
-                          <div className="table-primary-cell">
-                            <strong>{row.primary}</strong>
-                            <small>{row.meta}</small>
+                          <span className="table-value-strong">{formatReportType(item.reportType)}</span>
+                        </td>
+                        <td>
+                          <span className="pill pill-neutral">{item.outputFormat.toUpperCase()}</span>
+                        </td>
+                        <td>
+                          <span className="table-secondary-copy">{item.requestedBy}</span>
+                        </td>
+                        <td>
+                          <span className="table-secondary-copy">{formatReportTime(item.createdAt)}</span>
+                        </td>
+                        <td>
+                          <span className="table-secondary-copy">{item.completedAt ? formatReportTime(item.completedAt) : '—'}</span>
+                        </td>
+                        <td>
+                          <span className="table-secondary-copy">{item.fileSizeBytes ? `${Math.round(item.fileSizeBytes / 1024)} KB` : '—'}</span>
+                        </td>
+                        <td>
+                          <div>
+                            <span className={`pill pill-${tone}`}>{item.status}</span>
+                            {item.errorMessage ? <small style={{ display: 'block', marginTop: 3, fontSize: '0.72rem', color: 'var(--muted)' }}>{item.errorMessage}</small> : null}
                           </div>
                         </td>
                         <td>
-                          <div className="table-metadata-pieces">
-                            {row.secondary.split(' • ').map((part) => (
-                              <span key={part} className="table-secondary-copy">{part}</span>
-                            ))}
-                          </div>
-                        </td>
-                        <td>
-                          <span className={`pill pill-${tone}`}>{row.meta}</span>
-                        </td>
-                        <td>
-                          <button className="table-action" type="button" onClick={() => openDialog({ title: row.primary, description: row.secondary, confirmLabel: 'Open report', tone: tone === 'warn' ? 'danger' : 'default' })}>
-                            Open report
-                            <Icon name="launch" />
+                          <button className="table-action" type="button" onClick={() => setReportDrawer(item)}>
+                            View<Icon name="launch" />
                           </button>
                         </td>
                       </tr>
@@ -3002,7 +3556,273 @@ function App() {
             </div>
           )}
         </section>
-      </section>
+      </div>
+    );
+  }
+
+  function renderSummaryPage(): ReactNode {
+    if (summaryOverview.status === 'loading' && !summaryData) {
+      return (
+        <section className="panel table-panel" aria-label="Summary loading">
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="refresh" /></div>
+            <h4>Loading overview</h4>
+            <p>Fetching the current portfolio summary from the analytics engine.</p>
+          </div>
+        </section>
+      );
+    }
+    if (summaryOverview.status === 'error' && !summaryData) {
+      return (
+        <section className="panel table-panel" aria-label="Summary error">
+          <div className="empty-state" role="status" aria-live="polite">
+            <div className="empty-state-icon"><Icon name="alert" /></div>
+            <h4>Overview unavailable</h4>
+            <p>{summaryOverview.error ?? 'Unable to load portfolio summary.'}</p>
+          </div>
+        </section>
+      );
+    }
+
+    const CHART_H = 210;
+    const gridStroke = 'rgba(20, 41, 37, 0.06)';
+
+    function summaryChartGrad(id: string, color: string): ReactNode {
+      return (
+        <defs>
+          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.22} />
+            <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+      );
+    }
+
+    const aumTrendSeries = (trendsData?.monthly ?? []).map((p) => {
+      const d = new Date(`${p.period}-01T00:00:00`);
+      return {
+        label: d.toLocaleDateString('en', { month: 'short', year: '2-digit' }),
+        volume: p.totalInvestment,
+      };
+    });
+
+    const customerMixData = [
+      { label: 'New to Bank', value: summaryData?.newCustomers.customerCount ?? 0, color: chartToneColors.good },
+      { label: 'Returning', value: summaryData?.returningCustomers.customerCount ?? 0, color: chartToneColors.brand },
+    ].filter((d) => d.value > 0);
+
+    const fundMixData = [
+      { label: 'Inflow', value: summaryData?.inflowFunds.investmentValue ?? 0, color: chartToneColors.brand },
+      { label: 'Rollover', value: summaryData?.rolloverFunds.investmentValue ?? 0, color: chartToneColors.warn },
+    ];
+
+    const tenorData = (summaryData?.tenorBreakdown ?? [])
+      .slice()
+      .sort((a, b) => b.investmentValue - a.investmentValue)
+      .map((t) => ({ label: t.label, value: t.investmentValue }));
+
+    const topTenor = tenorData[0]?.label ?? '--';
+
+    return (
+      <div className="trends-charts-page">
+        <section className="panel date-filter-bar">
+          <div className="date-filter-presets">
+            {DATE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={summaryPreset === p.id ? 'range-option range-option-active' : 'range-option'}
+                onClick={() => {
+                  setSummaryPreset(p.id);
+                  if (p.id !== 'custom') {
+                    const r = presetToDateRange(p.id);
+                    setSummaryFrom(r.from);
+                    setSummaryTo(r.to);
+                    setSummaryRefreshKey((k) => k + 1);
+                  }
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="date-filter-inputs">
+            <label className="date-filter-field">
+              <span className="trends-period-label">From</span>
+              <input
+                type="date"
+                className="date-range-input"
+                value={summaryFrom}
+                max={summaryTo || undefined}
+                onChange={(e) => { setSummaryFrom(e.target.value); setSummaryPreset('custom'); setSummaryRefreshKey((k) => k + 1); }}
+              />
+            </label>
+            <label className="date-filter-field">
+              <span className="trends-period-label">To</span>
+              <input
+                type="date"
+                className="date-range-input"
+                value={summaryTo}
+                min={summaryFrom || undefined}
+                onChange={(e) => { setSummaryTo(e.target.value); setSummaryPreset('custom'); setSummaryRefreshKey((k) => k + 1); }}
+              />
+            </label>
+            {(summaryFrom || summaryTo) && (
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => { setSummaryFrom(''); setSummaryTo(''); setSummaryPreset('all'); setSummaryRefreshKey((k) => k + 1); }}
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          <div className="date-filter-status">
+            {summaryOverview.status === 'loading'
+              ? <span className="pill pill-neutral">Refreshing…</span>
+              : (summaryFrom || summaryTo)
+                ? <span className="pill pill-good">Filtered</span>
+                : <span className="pill pill-neutral">All time</span>}
+          </div>
+        </section>
+
+        <div className="trends-chart-grid">
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">AUM</p><h3>Mobilisation over time</h3></div>
+              <strong className="trends-kpi">{formatCurrency(summaryData?.totalInvestment)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <AreaChart data={aumTrendSeries}>
+                  {summaryChartGrad('sumAUMFill', chartToneColors.brand)}
+                  <CartesianGrid vertical={false} stroke={gridStroke} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} interval="preserveStartEnd" />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={60} tickFormatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                  <Area type="monotone" dataKey="volume" name="Volume" stroke={chartToneColors.brand} fill="url(#sumAUMFill)" strokeWidth={2} dot={false} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Customers</p><h3>NTB vs returning</h3></div>
+              <strong className="trends-kpi">{formatCount(summaryData?.uniqueCustomers)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <PieChart>
+                  <Pie data={customerMixData} dataKey="value" nameKey="label" innerRadius={58} outerRadius={90} paddingAngle={3}>
+                    {customerMixData.map((item) => <Cell key={item.label} fill={item.color} />)}
+                  </Pie>
+                  <Tooltip />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="summary-legend">
+              {customerMixData.map((item) => (
+                <article key={item.label} className="summary-legend-item">
+                  <span className="summary-legend-dot" style={{ backgroundColor: item.color }} />
+                  <div>
+                    <strong>{item.label}</strong>
+                    <small>{formatCount(item.value)} customers</small>
+                  </div>
+                </article>
+              ))}
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Fund Mix</p><h3>Inflow vs rollover</h3></div>
+              <strong className="trends-kpi">{summaryData ? `${summaryData.fundTypeSplit.inflowShare.toFixed(0)}% inflow` : '--'}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <BarChart data={fundMixData}>
+                  <CartesianGrid vertical={false} stroke={gridStroke} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={60} tickFormatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                  <Bar dataKey="value" radius={[10, 10, 0, 0]}>
+                    {fundMixData.map((item) => <Cell key={item.label} fill={item.color} />)}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Tenor</p><h3>Exposure breakdown</h3></div>
+              <strong className="trends-kpi">{topTenor}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={CHART_H}>
+                <BarChart data={tenorData} layout="vertical" margin={{ left: 8, right: 8 }}>
+                  <CartesianGrid horizontal={false} stroke={gridStroke} />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} tickFormatter={(v: number) => formatCurrency(v)} />
+                  <YAxis type="category" dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={80} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                  <Bar dataKey="value" radius={[0, 10, 10, 0]} fill={chartToneColors.good} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+        </div>
+
+        <div className="trends-chart-grid">
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Metrics</p><h3>Key averages</h3></div>
+            </div>
+            <div className="summary-kpi-list">
+              <div className="summary-kpi-row">
+                <span className="trends-period-label">Avg. ticket (record)</span>
+                <strong>{formatCurrency(summaryData?.averageInvestmentPerRecord)}</strong>
+              </div>
+              <div className="summary-kpi-row">
+                <span className="trends-period-label">Avg. ticket (customer)</span>
+                <strong>{formatCurrency(summaryData?.averageInvestmentPerCustomer)}</strong>
+              </div>
+              <div className="summary-kpi-row">
+                <span className="trends-period-label">Investment count</span>
+                <strong>{formatCount(summaryData?.investmentCount)}</strong>
+              </div>
+              {summaryData?.averageCostOfFunds != null && (
+                <div className="summary-kpi-row">
+                  <span className="trends-period-label">Avg. cost of funds</span>
+                  <strong>{formatPercent(summaryData.averageCostOfFunds)}</strong>
+                </div>
+              )}
+            </div>
+          </article>
+
+          {summaryData?.highestContribution && (
+            <article className="panel trends-chart-panel">
+              <div className="panel-header compact">
+                <div><p className="eyebrow">Highlight</p><h3>Top contributor</h3></div>
+              </div>
+              <div className="summary-kpi-list">
+                <div className="summary-kpi-row">
+                  <span className="trends-period-label">Customer</span>
+                  <strong>{summaryData.highestContribution.customerName}</strong>
+                </div>
+                <div className="summary-kpi-row">
+                  <span className="trends-period-label">Amount</span>
+                  <strong>{formatCurrency(summaryData.highestContribution.investmentAmount)}</strong>
+                </div>
+                <div className="summary-kpi-row">
+                  <span className="trends-period-label">Date</span>
+                  <strong>{formatShortDate(summaryData.highestContribution.mobilisationDate)}</strong>
+                </div>
+              </div>
+            </article>
+          )}
+        </div>
+      </div>
     );
   }
 
@@ -3075,7 +3895,7 @@ function App() {
           <CartesianGrid vertical={false} stroke={gridStroke} />
           <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} interval="preserveStartEnd" />
           <YAxis axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={60} tickFormatter={(v: number) => formatCurrency(v)} />
-          <Tooltip formatter={(v: number) => formatCurrency(v)} />
+          <Tooltip formatter={(v) => formatCurrency(Number(v))} />
         </>
       );
     }
@@ -3106,13 +3926,30 @@ function App() {
     const totalReturnVolume = breakdown.reduce((s, p) => s + p.returningCustomerInvestment, 0);
     const peakReturnCount = breakdown.length > 0 ? Math.max(...breakdown.map((p) => p.returningCustomerCount)) : 0;
 
-    const isFiltered = !!(trendsFrom || trendsTo);
-
     return (
       <div className="trends-charts-page">
-        <section className="panel trends-toolbar">
-          <div className="trends-toolbar-controls">
-            <div className="trends-toolbar-group">
+        <section className="panel date-filter-bar">
+          <div className="date-filter-presets">
+            {DATE_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className={trendsPreset === p.id ? 'range-option range-option-active' : 'range-option'}
+                onClick={() => {
+                  setTrendsPreset(p.id);
+                  if (p.id !== 'custom') {
+                    const r = presetToDateRange(p.id);
+                    setTrendsFrom(r.from);
+                    setTrendsTo(r.to);
+                  }
+                }}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="date-filter-inputs">
+            <label className="date-filter-field">
               <span className="trends-period-label">From</span>
               <input
                 type="date"
@@ -3120,10 +3957,10 @@ function App() {
                 aria-label="From date"
                 value={trendsFrom}
                 max={trendsTo || undefined}
-                onChange={(e) => setTrendsFrom(e.target.value)}
+                onChange={(e) => { setTrendsFrom(e.target.value); setTrendsPreset('custom'); }}
               />
-            </div>
-            <div className="trends-toolbar-group">
+            </label>
+            <label className="date-filter-field">
               <span className="trends-period-label">To</span>
               <input
                 type="date"
@@ -3131,11 +3968,16 @@ function App() {
                 aria-label="To date"
                 value={trendsTo}
                 min={trendsFrom || undefined}
-                onChange={(e) => setTrendsTo(e.target.value)}
+                onChange={(e) => { setTrendsTo(e.target.value); setTrendsPreset('custom'); }}
               />
-            </div>
-            <div className="trends-toolbar-divider" />
-            <div className="trends-toolbar-group">
+            </label>
+            {(trendsFrom || trendsTo) && (
+              <button type="button" className="secondary-button" onClick={() => { setTrendsFrom(''); setTrendsTo(''); setTrendsPreset('all'); }}>
+                Clear
+              </button>
+            )}
+            <div className="date-filter-divider" />
+            <div className="date-filter-field">
               <span className="trends-period-label">Resolution</span>
               <div className="range-toggle" role="tablist" aria-label="Chart resolution">
                 {(['daily', 'weekly', 'monthly'] as const).map((p) => (
@@ -3146,18 +3988,13 @@ function App() {
               </div>
             </div>
           </div>
-          <div className="trends-toolbar-status">
+          <div className="date-filter-status">
             {trendsOverview.status === 'loading' ? (
               <span className="pill pill-neutral">Refreshing…</span>
-            ) : isFiltered ? (
-              <>
-                <span className="pill pill-good">Filtered</span>
-                <button type="button" className="secondary-button" onClick={() => { setTrendsFrom(''); setTrendsTo(''); }}>
-                  Clear
-                </button>
-              </>
+            ) : (trendsFrom || trendsTo) ? (
+              <span className="pill pill-good">Filtered</span>
             ) : (
-              <span className="pill pill-neutral">All-time</span>
+              <span className="pill pill-neutral">All time</span>
             )}
           </div>
         </section>
@@ -3275,7 +4112,6 @@ function App() {
       setInviteForm({ name: '', email: '', roleCode: 'analyst', password: '', confirmPassword: '' });
       setShowInvitePwd(false);
       setShowInviteConfirmPwd(false);
-      setShowEditPwd(false);
     }
 
     async function handleInviteSubmit() {
@@ -3414,11 +4250,22 @@ function App() {
   }
 
   function renderUsersPage(): ReactNode {
-    const availableRoles = rolesData.data?.items ?? [];
     const matrixRoles = roleMatrix.data?.roles ?? [];
     const matrixPermissions = roleMatrix.data?.permissions ?? [];
 
-    // Group permissions by their category prefix (e.g. 'dashboard', 'users', 'uploads')
+    // Group permissions by category prefix and map to human-readable section names
+    const GROUP_LABELS: Record<string, string> = {
+      auth:         'Authentication',
+      users:        'Team Management',
+      uploads:      'Data Uploads',
+      dashboard:    'Dashboards & Analytics',
+      reports:      'Reports & Exports',
+      integrations: 'Data Integrations',
+      audit:        'Audit & Compliance',
+      settings:     'System Settings',
+      jobs:         'Background Jobs',
+    };
+
     const permGroups = matrixPermissions.reduce<Record<string, PermissionItem[]>>((acc, p) => {
       const group = p.code.split('.')[0] ?? 'other';
       acc[group] = [...(acc[group] ?? []), p];
@@ -3429,6 +4276,8 @@ function App() {
       const newCodes = currentCodes.includes(permCode)
         ? currentCodes.filter((c) => c !== permCode)
         : [...currentCodes, permCode];
+      setSavingRoleId(roleId);
+      setSavedRoleId(null);
       try {
         await apiMutate('PUT', `roles/${roleId}/permissions`, { permissionCodes: newCodes });
         setRoleMatrix((prev) => {
@@ -3438,8 +4287,12 @@ function App() {
             data: { ...prev.data, roles: prev.data.roles.map((r) => r.id === roleId ? { ...r, permissionCodes: newCodes } : r) },
           };
         });
+        setSavedRoleId(roleId);
+        window.setTimeout(() => setSavedRoleId((cur) => cur === roleId ? null : cur), 2000);
       } catch (err: unknown) {
         setNotice({ message: err instanceof Error ? err.message : 'Failed to update permissions', tone: 'warn' });
+      } finally {
+        setSavingRoleId((cur) => cur === roleId ? null : cur);
       }
     }
 
@@ -3451,6 +4304,7 @@ function App() {
         await apiMutate('POST', 'roles', { name: newRoleForm.name.trim(), code: newRoleForm.code.trim(), description: newRoleForm.description.trim() || undefined });
         setNotice({ message: `Role "${newRoleForm.name}" created`, tone: 'info' });
         setNewRoleForm({ name: '', code: '', description: '' });
+        setShowCreateRoleDrawer(false);
         setRoleMatrix({ status: 'idle', data: null, error: null });
       } catch (err: unknown) {
         setNotice({ message: err instanceof Error ? err.message : 'Failed to create role', tone: 'warn' });
@@ -3463,12 +4317,52 @@ function App() {
         description: `This role will be permanently removed. All users must be reassigned first.`,
         confirmLabel: 'Delete role',
         tone: 'danger',
+        onConfirm: async () => {
+          await apiMutate('DELETE', `roles/${roleId}`);
+          setNotice({ tone: 'warn', message: `Role "${roleName}" has been deleted.` });
+          setRoleMatrix({ status: 'idle', data: null, error: null });
+        },
       });
     }
 
     return (
       <>
         {renderUserDrawer()}
+
+        {showCreateRoleDrawer ? (
+          <>
+            <div className="drawer-scrim" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '' }); }} aria-hidden="true" />
+            <aside className="drawer" role="dialog" aria-modal="true" aria-label="Create custom role">
+              <div className="drawer-header">
+                <h3>Create Custom Role</h3>
+                <button className="icon-button" type="button" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '' }); }} aria-label="Close">
+                  <Icon name="x" />
+                </button>
+              </div>
+              <div className="drawer-body">
+                <div className="form-grid">
+                  <label className="field-card field-card-wide">
+                    <span className="field-label">Role Name</span>
+                    <input type="text" value={newRoleForm.name} onChange={(e) => setNewRoleForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Compliance Officer" autoFocus />
+                  </label>
+                  <label className="field-card field-card-wide">
+                    <span className="field-label">Code (lowercase, underscores)</span>
+                    <span className="field-help">Used internally — cannot be changed after creation</span>
+                    <input type="text" value={newRoleForm.code} onChange={(e) => setNewRoleForm((p) => ({ ...p, code: e.target.value.toLowerCase().replace(/[^a-z_]/g, '') }))} placeholder="e.g. compliance_officer" />
+                  </label>
+                  <label className="field-card field-card-wide">
+                    <span className="field-label">Description <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></span>
+                    <input type="text" value={newRoleForm.description} onChange={(e) => setNewRoleForm((p) => ({ ...p, description: e.target.value }))} placeholder="Brief description of this role's purpose" />
+                  </label>
+                </div>
+              </div>
+              <div className="drawer-footer">
+                <button className="secondary-button" type="button" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '' }); }}>Cancel</button>
+                <button className="primary-button" type="button" onClick={handleCreateRole}>Create role</button>
+              </div>
+            </aside>
+          </>
+        ) : null}
 
         <div className="settings-page">
           <div className="settings-page-header">
@@ -3566,31 +4460,6 @@ function App() {
             </section>
           ) : (
             <>
-              {/* Create role card */}
-              <section className="panel">
-                <div className="panel-header">
-                  <div><h3>Create Custom Role</h3></div>
-                </div>
-                <div className="form-grid" style={{ padding: '0 18px 18px' }}>
-                  <label className="field-card">
-                    <span className="field-label">Role Name</span>
-                    <input type="text" value={newRoleForm.name} onChange={(e) => setNewRoleForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Compliance Officer" />
-                  </label>
-                  <label className="field-card">
-                    <span className="field-label">Code (lowercase, underscores)</span>
-                    <input type="text" value={newRoleForm.code} onChange={(e) => setNewRoleForm((p) => ({ ...p, code: e.target.value.toLowerCase().replace(/[^a-z_]/g, '') }))} placeholder="e.g. compliance_officer" />
-                  </label>
-                  <label className="field-card field-card-wide">
-                    <span className="field-label">Description (optional)</span>
-                    <input type="text" value={newRoleForm.description} onChange={(e) => setNewRoleForm((p) => ({ ...p, description: e.target.value }))} placeholder="Brief description of this role's purpose" />
-                  </label>
-                </div>
-                <div className="panel-footer">
-                  <div className="panel-footer-actions">
-                    <button className="primary-button" type="button" onClick={handleCreateRole}>Create role</button>
-                  </div>
-                </div>
-              </section>
 
               {/* Permission matrix */}
               <section className="panel">
@@ -3599,6 +4468,9 @@ function App() {
                     <h3>Role Permissions</h3>
                     <p className="eyebrow">{formatCount(matrixRoles.length)} roles • {formatCount(matrixPermissions.length)} permissions</p>
                   </div>
+                  <button className="primary-button" type="button" onClick={() => setShowCreateRoleDrawer(true)}>
+                    Create role
+                  </button>
                 </div>
 
                 {roleMatrix.status === 'loading' ? (
@@ -3634,6 +4506,11 @@ function App() {
                                   </button>
                                 )}
                               </div>
+                              {savingRoleId === role.id ? (
+                                <span className="perm-save-indicator perm-saving">Saving…</span>
+                              ) : savedRoleId === role.id ? (
+                                <span className="perm-save-indicator perm-saved">Saved</span>
+                              ) : null}
                             </th>
                           ))}
                         </tr>
@@ -3642,13 +4519,13 @@ function App() {
                         {Object.entries(permGroups).sort(([a], [b]) => a.localeCompare(b)).map(([group, perms]) => (
                           <>
                             <tr key={`group-${group}`} className="perm-group-row">
-                              <td colSpan={matrixRoles.length + 1} className="perm-group-label">{group}</td>
+                              <td colSpan={matrixRoles.length + 1} className="perm-group-label">{GROUP_LABELS[group] ?? group}</td>
                             </tr>
                             {perms.map((perm) => (
                               <tr key={perm.id}>
                                 <td className="perm-col-label">
-                                  <span className="perm-code">{perm.code.split('.').slice(1).join('.')}</span>
-                                  {perm.description ? <span className="table-secondary-copy">{perm.description}</span> : null}
+                                  <span className="perm-desc">{perm.description ?? perm.code}</span>
+                                  <code className="perm-code">{perm.code}</code>
                                 </td>
                                 {matrixRoles.map((role) => {
                                   const checked = role.permissionCodes.includes(perm.code);
@@ -3657,6 +4534,7 @@ function App() {
                                       <input
                                         type="checkbox"
                                         checked={checked}
+                                        disabled={savingRoleId === role.id}
                                         onChange={() => handleTogglePermission(role.id, perm.code, role.permissionCodes)}
                                         aria-label={`${role.name}: ${perm.code}`}
                                       />
@@ -3727,17 +4605,15 @@ function App() {
           <p>Manage your account and preferences</p>
         </div>
 
-        <div className="settings-layout">
-          <nav className="settings-nav" aria-label="Settings navigation">
-            {tabs.map((tab) => (
-              <button key={tab.id} className={settingsTab === tab.id ? 'settings-nav-button settings-nav-button-active' : 'settings-nav-button'} type="button" onClick={() => setSettingsTab(tab.id)}>
-                {tab.label}
-              </button>
-            ))}
-          </nav>
+        <div className="customer-tab-bar" role="tablist" aria-label="Settings navigation">
+          {tabs.map((tab) => (
+            <button key={tab.id} role="tab" aria-selected={settingsTab === tab.id} className={settingsTab === tab.id ? 'customer-tab customer-tab-active' : 'customer-tab'} type="button" onClick={() => setSettingsTab(tab.id)}>
+              {tab.label}
+            </button>
+          ))}
+        </div>
 
-          <div className="settings-content">
-            {settingsTab === 'profile' ? (
+        {settingsTab === 'profile' ? (
               <section className="panel">
                 <div className="panel-header">
                   <div>
@@ -3811,31 +4687,284 @@ function App() {
                 </div>
               </section>
             ) : settingsTab === 'config' ? (
-              <section className="panel">
-                <div className="panel-header">
-                  <div>
-                    <h3>Application Configuration</h3>
-                    <p className="eyebrow">System-level operational settings</p>
+              <>
+                {/* ── Google Sheets integrations ───────────────────── */}
+                <section className="panel">
+                  <div className="panel-header">
+                    <div>
+                      <h3>Google Sheets Integrations</h3>
+                      <p className="eyebrow">Live data sources — replaces manual CSV uploads</p>
+                    </div>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      onClick={() => setGSheetFormOpen((o) => !o)}
+                    >
+                      {gSheetFormOpen ? 'Cancel' : '+ Link Spreadsheet'}
+                    </button>
                   </div>
-                  <span className="pill pill-neutral">Admin only</span>
-                </div>
-                <div className="inline-note-grid" style={{ padding: '0 18px 18px' }}>
-                  <article className="inline-note-card">
-                    <strong>System settings</strong>
-                    <p>{formatCount(settingsData?.settings.length)} persisted configuration keys, {formatCount(settingsData?.settings.filter((item) => item.isSensitive).length)} marked sensitive.</p>
-                  </article>
-                  <article className="inline-note-card">
-                    <strong>Tenor bands</strong>
-                    <p>{settingsData?.tenorBands.filter((b) => b.status === 'active').map((b) => `${b.label} (${b.minDays}–${b.maxDays}d)`).slice(0, 3).join(' • ') || 'No active tenor bands.'}</p>
-                  </article>
-                  <article className="inline-note-card">
-                    <strong>Source channels</strong>
-                    <p>{settingsData?.sourceChannels.filter((c) => c.status === 'active').map((c) => c.name).slice(0, 4).join(' • ') || 'No active source channels.'}</p>
-                  </article>
-                </div>
-              </section>
+
+                  {/* Add integration form */}
+                  {gSheetFormOpen && (
+                    <div style={{ padding: '0 18px 18px', display: 'grid', gap: 14 }}>
+                      <div className="form-grid">
+                        <label className="field-card">
+                          <span className="field-label">Integration name</span>
+                          <input
+                            type="text"
+                            placeholder="e.g. Q2 Investment Register"
+                            value={gSheetForm.name}
+                            onChange={(e) => setGSheetForm((f) => ({ ...f, name: e.target.value }))}
+                          />
+                        </label>
+                        <label className="field-card">
+                          <span className="field-label">Sync frequency</span>
+                          <select value={gSheetForm.syncFrequency} onChange={(e) => setGSheetForm((f) => ({ ...f, syncFrequency: e.target.value as typeof gSheetForm.syncFrequency }))}>
+                            <option value="manual">Manual only</option>
+                            <option value="daily">Daily</option>
+                            <option value="weekly">Weekly</option>
+                            <option value="monthly">Monthly</option>
+                          </select>
+                        </label>
+                        <label className="field-card field-card-wide">
+                          <span className="field-label">Spreadsheet URL</span>
+                          <input
+                            type="url"
+                            placeholder="https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit"
+                            value={gSheetForm.spreadsheetUrl}
+                            onChange={(e) => setGSheetForm((f) => ({ ...f, spreadsheetUrl: e.target.value }))}
+                          />
+                        </label>
+                        <label className="field-card field-card-wide">
+                          <span className="field-label">Service Account credentials JSON</span>
+                          <span className="field-help">Paste the full JSON from your Google Cloud Service Account key file. Never shared or stored in plaintext.</span>
+                          <textarea
+                            rows={5}
+                            placeholder={'{\n  "type": "service_account",\n  "project_id": "...",\n  "private_key": "...",\n  "client_email": "..."\n}'}
+                            value={gSheetForm.credentialsJson}
+                            onChange={(e) => setGSheetForm((f) => ({ ...f, credentialsJson: e.target.value }))}
+                            style={{ fontFamily: 'monospace', fontSize: '0.78rem', resize: 'vertical' }}
+                          />
+                        </label>
+                      </div>
+                      <div style={{ display: 'flex', gap: 10 }}>
+                        <button
+                          className="btn btn-primary"
+                          type="button"
+                          disabled={gSheetBusy === 'creating'}
+                          onClick={async () => {
+                            const urlMatch = gSheetForm.spreadsheetUrl.match(/\/spreadsheets\/d\/([\w-]+)/);
+                            const spreadsheetId = urlMatch?.[1] ?? gSheetForm.spreadsheetUrl.trim();
+                            if (!gSheetForm.name.trim() || !spreadsheetId || !gSheetForm.credentialsJson.trim()) {
+                              setNotice({ tone: 'warn', message: 'Name, spreadsheet URL, and credentials JSON are required.' });
+                              return;
+                            }
+                            let credentials: Record<string, unknown>;
+                            try { credentials = JSON.parse(gSheetForm.credentialsJson) as Record<string, unknown>; }
+                            catch { setNotice({ tone: 'warn', message: 'Credentials JSON is not valid JSON.' }); return; }
+                            setGSheetBusy('creating');
+                            try {
+                              const created = await apiMutate<IntegrationItem>('POST', 'integrations', {
+                                name: gSheetForm.name.trim(),
+                                sourceType: 'google_sheets',
+                                secretRef: JSON.stringify(credentials),
+                                fieldMapping: {},
+                                connectionConfig: { spreadsheetId, authMethod: credentials['type'] === 'service_account' ? 'service_account' : 'oauth2' },
+                                syncFrequency: gSheetForm.syncFrequency,
+                              });
+                              setIntegrationsState((s) => ({
+                                ...s,
+                                data: s.data ? { items: [created, ...s.data.items], count: s.data.count + 1 } : { items: [created], count: 1 },
+                              }));
+                              setGSheetForm({ name: '', spreadsheetUrl: '', credentialsJson: '', syncFrequency: 'daily' });
+                              setGSheetFormOpen(false);
+                              setNotice({ tone: 'info', message: `Integration "${created.name}" created. Click Discover Tabs to map your sheet.` });
+                            } catch (err: unknown) {
+                              setNotice({ tone: 'warn', message: err instanceof Error ? err.message : 'Failed to create integration.' });
+                            } finally {
+                              setGSheetBusy(null);
+                            }
+                          }}
+                        >
+                          {gSheetBusy === 'creating' ? 'Linking…' : 'Link Spreadsheet'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Integrations list */}
+                  <div style={{ padding: '0 18px 18px', display: 'grid', gap: 12 }}>
+                    {integrationsState.status === 'loading' && (
+                      <div className="empty-state"><div className="empty-state-icon"><Icon name="refresh" /></div><h4>Loading integrations…</h4></div>
+                    )}
+                    {integrationsState.status === 'error' && (
+                      <div className="empty-state"><h4>Failed to load integrations</h4><p>{integrationsState.error}</p></div>
+                    )}
+                    {integrationsState.status === 'ready' && integrationsState.data!.items.filter((i) => i.sourceType === 'google_sheets').length === 0 && !gSheetFormOpen && (
+                      <div className="empty-state" style={{ padding: '32px 0' }}>
+                        <div className="empty-state-icon"><Icon name="database" /></div>
+                        <h4>No Google Sheets integrations yet</h4>
+                        <p>Click <strong>+ Link Spreadsheet</strong> above to connect your first live data source.</p>
+                      </div>
+                    )}
+                    {(integrationsState.data?.items ?? []).filter((i) => i.sourceType === 'google_sheets').map((integration) => {
+                      const isExpanded = expandedIntegration === integration.id;
+                      const tabs = integrationTabs[integration.id] ?? [];
+                      const statusTone = integration.status === 'active' ? 'pill-active' : integration.status === 'failed' ? 'pill-warn' : 'pill-neutral';
+                      return (
+                        <article key={integration.id} className="panel" style={{ margin: 0, padding: 0, overflow: 'hidden' }}>
+                          <div className="panel-header" style={{ padding: '14px 18px' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                              <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                                <strong>{integration.name}</strong>
+                                <span className={`pill ${statusTone}`}>{integration.status}</span>
+                                <span className="pill pill-neutral">{integration.syncFrequency}</span>
+                              </div>
+                              <span className="eyebrow" style={{ fontSize: '0.76rem' }}>
+                                {integration.lastSuccessfulSyncAt ? `Last synced ${new Date(integration.lastSuccessfulSyncAt).toLocaleString()}` : 'Never synced'}
+                              </span>
+                            </div>
+                            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                              {/* Discover tabs */}
+                              <button
+                                className="btn btn-sm"
+                                type="button"
+                                disabled={gSheetBusy === `discover-${integration.id}`}
+                                onClick={async () => {
+                                  setGSheetBusy(`discover-${integration.id}`);
+                                  try {
+                                    const result = await apiMutate<{ tabs: SheetTabItem[]; count: number }>('POST', `integrations/${integration.id}/discover-tabs`, {});
+                                    setIntegrationTabs((t) => ({ ...t, [integration.id]: result.tabs }));
+                                    setExpandedIntegration(integration.id);
+                                    setNotice({ tone: 'info', message: `Found ${result.count} tab${result.count !== 1 ? 's' : ''}. Configure column mappings below.` });
+                                  } catch (err: unknown) {
+                                    setNotice({ tone: 'warn', message: err instanceof Error ? err.message : 'Tab discovery failed.' });
+                                  } finally {
+                                    setGSheetBusy(null);
+                                  }
+                                }}
+                              >
+                                {gSheetBusy === `discover-${integration.id}` ? 'Discovering…' : 'Discover Tabs'}
+                              </button>
+
+                              {/* Sync now */}
+                              <button
+                                className="btn btn-sm btn-primary"
+                                type="button"
+                                disabled={gSheetBusy === `sync-${integration.id}`}
+                                onClick={async () => {
+                                  setGSheetBusy(`sync-${integration.id}`);
+                                  try {
+                                    await apiMutate('POST', `integrations/${integration.id}/sync`, {});
+                                    setNotice({ tone: 'info', message: `Sync queued for "${integration.name}". Investment records will update shortly.` });
+                                    setIntegrationsState((s) => ({ ...s, status: 'idle' }));
+                                  } catch (err: unknown) {
+                                    setNotice({ tone: 'warn', message: err instanceof Error ? err.message : 'Sync trigger failed.' });
+                                  } finally {
+                                    setGSheetBusy(null);
+                                  }
+                                }}
+                              >
+                                {gSheetBusy === `sync-${integration.id}` ? 'Queuing…' : 'Sync Now'}
+                              </button>
+
+                              {/* Show/hide tabs */}
+                              {tabs.length > 0 && (
+                                <button
+                                  className="btn btn-sm"
+                                  type="button"
+                                  onClick={() => setExpandedIntegration(isExpanded ? null : integration.id)}
+                                >
+                                  {isExpanded ? 'Hide Tabs' : `${tabs.length} Tab${tabs.length !== 1 ? 's' : ''}`}
+                                </button>
+                              )}
+
+                              {/* Disable */}
+                              {integration.status === 'active' && (
+                                <button
+                                  className="btn btn-sm btn-danger"
+                                  type="button"
+                                  onClick={() => openDialog({
+                                    title: 'Disable integration',
+                                    description: `Stop syncing data from "${integration.name}". Existing investment records are preserved. You can re-enable it at any time.`,
+                                    confirmLabel: 'Disable',
+                                    tone: 'danger',
+                                    onConfirm: async () => {
+                                      await apiMutate('DELETE', `integrations/${integration.id}`, {});
+                                      setIntegrationsState((s) => ({
+                                        ...s,
+                                        data: s.data ? {
+                                          ...s.data,
+                                          items: s.data.items.map((i) => i.id === integration.id ? { ...i, status: 'inactive' as const } : i),
+                                        } : null,
+                                      }));
+                                    },
+                                  })}
+                                >
+                                  Disable
+                                </button>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Tabs panel */}
+                          {isExpanded && tabs.length > 0 && (
+                            <div style={{ borderTop: '1px solid var(--border)', padding: '14px 18px', display: 'grid', gap: 10 }}>
+                              <p className="eyebrow" style={{ margin: 0 }}>Sheet tabs — configure column mapping per tab</p>
+                              {tabs.map((tab) => (
+                                <div key={tab.id} style={{ display: 'grid', gridTemplateColumns: '1fr auto auto', gap: 12, alignItems: 'start', padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+                                  <div>
+                                    <strong style={{ fontSize: '0.88rem' }}>{tab.sheetTitle}</strong>
+                                    <p className="eyebrow" style={{ margin: '2px 0 0', fontSize: '0.74rem' }}>
+                                      Range: {tab.rangeNotation} •{' '}
+                                      {tab.lastRowCount !== null ? `${tab.lastRowCount} rows` : 'Not synced yet'} •{' '}
+                                      {tab.lastSyncedAt ? `Synced ${new Date(tab.lastSyncedAt).toLocaleDateString()}` : 'Pending first sync'}
+                                    </p>
+                                    {Object.keys(tab.columnMapping).length > 0 && (
+                                      <p style={{ margin: '4px 0 0', fontSize: '0.74rem', color: 'var(--muted)', fontFamily: 'monospace' }}>
+                                        {Object.entries(tab.columnMapping).slice(0, 4).map(([k, v]) => `"${k}" → ${v}`).join(' • ')}
+                                        {Object.keys(tab.columnMapping).length > 4 ? ` +${Object.keys(tab.columnMapping).length - 4} more` : ''}
+                                      </p>
+                                    )}
+                                    {Object.keys(tab.columnMapping).length === 0 && (
+                                      <p style={{ margin: '4px 0 0', fontSize: '0.76rem', color: 'var(--warn)' }}>No column mapping — syncer will auto-detect headers</p>
+                                    )}
+                                  </div>
+                                  <span className={`pill ${tab.status === 'active' ? 'pill-active' : 'pill-neutral'}`}>{tab.status}</span>
+                                  <button
+                                    className="btn btn-sm"
+                                    type="button"
+                                    disabled={gSheetBusy === `tab-${tab.id}`}
+                                    onClick={async () => {
+                                      setGSheetBusy(`tab-${tab.id}`);
+                                      try {
+                                        const newStatus: 'active' | 'ignored' = tab.status === 'active' ? 'ignored' : 'active';
+                                        await apiMutate('PATCH', `integrations/${integration.id}/tabs/${tab.id}`, { status: newStatus });
+                                        setIntegrationTabs((t) => ({
+                                          ...t,
+                                          [integration.id]: (t[integration.id] ?? []).map((tt) => tt.id === tab.id ? { ...tt, status: newStatus } : tt),
+                                        }));
+                                      } catch (err: unknown) {
+                                        setNotice({ tone: 'warn', message: err instanceof Error ? err.message : 'Failed to update tab.' });
+                                      } finally {
+                                        setGSheetBusy(null);
+                                      }
+                                    }}
+                                  >
+                                    {tab.status === 'active' ? 'Ignore' : 'Enable'}
+                                  </button>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </article>
+                      );
+                    })}
+                  </div>
+                </section>
+              </>
             ) : (
-              <section className="panel">
+          <section className="panel">
                 <div className="panel-header">
                   <div>
                     <h3>Notification Preferences</h3>
@@ -3859,50 +4988,947 @@ function App() {
                   ))}
                 </div>
               </section>
-            )}
+        )}
+      </div>
+    );
+  }
+
+  function renderUploadsPage(): ReactNode {
+    const items = uploadItems;
+    const idle = { status: 'idle' as const, data: null, error: null };
+
+    function resetAllOverviews() {
+      setPortfolioOverview(idle);
+      setInvestmentsOverview(idle);
+      setWealthManagersOverview(idle);
+      setSummaryOverview(idle);
+      setUploadsOverview(idle);
+    }
+
+    async function handleClearAllData() {
+      await apiMutate('DELETE', 'uploads');
+      resetAllOverviews();
+    }
+
+    async function handleUploadFile() {
+      if (!uploadedFile) return;
+      // Step 1 — wipe existing data so new file is the sole source of truth
+      await apiMutate('DELETE', 'uploads');
+      // Step 2 — ingest the new CSV directly via the API
+      const formData = new FormData();
+      formData.append('file', uploadedFile);
+      const response = await fetch(`${API_BASE_URL}/uploads/ingest`, {
+        method: 'POST',
+        headers: dashboardRequestHeaders,
+        body: formData,
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({})) as { message?: string };
+        throw new Error(err.message ?? `HTTP ${response.status}`);
+      }
+      // Step 3 — reset all views so they re-fetch on next navigation
+      const name = uploadedFile.name;
+      setUploadedFile(null);
+      setSelectedUploadName('');
+      resetAllOverviews();
+      setNotice({ tone: 'good', message: `"${name}" uploaded — validation running. Once complete the batch will show "validated" in the table below. Click Confirm import to load the data.` });
+    }
+
+    return (
+      <div className="uploads-page">
+        <section className="panel upload-panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">Source of truth</p>
+              <h3>Upload dataset</h3>
+            </div>
+            {items.length > 0 ? (
+              <button
+                className="danger-button"
+                type="button"
+                onClick={() => openDialog({
+                  title: 'Clear all data',
+                  description: `This will permanently delete all ${items.length} upload batch${items.length !== 1 ? 'es' : ''} and every investment record imported from them. All portfolio, investment, and manager data will be wiped. This cannot be undone.`,
+                  confirmLabel: 'Clear all data',
+                  tone: 'danger',
+                  onConfirm: handleClearAllData,
+                })}
+              >
+                Clear all data
+              </button>
+            ) : null}
           </div>
+
+          <label
+            htmlFor="upload-file-input"
+            className={isDragOver ? 'upload-dropzone upload-dropzone-over' : 'upload-dropzone'}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+          >
+            <div className="upload-dropzone-icon">
+              <Icon name="briefcase" />
+            </div>
+            {selectedUploadName ? (
+              <>
+                <p className="upload-dropzone-filename">{selectedUploadName}</p>
+                <span className="upload-dropzone-hint">Click to replace</span>
+              </>
+            ) : (
+              <>
+                <p className="upload-dropzone-label">Drop a CSV file here</p>
+                <span className="upload-dropzone-hint">or click to browse</span>
+              </>
+            )}
+            <input
+              id="upload-file-input"
+              type="file"
+              accept=".csv,text/csv"
+              className="upload-input-hidden"
+              onChange={handleUploadSelection}
+            />
+          </label>
+          {selectedUploadName ? (
+            <div className="upload-panel-action">
+              <button
+                className="secondary-button"
+                type="button"
+                onClick={() => { setSelectedUploadName(''); setUploadedFile(null); }}
+              >
+                Cancel
+              </button>
+              <button
+                className="primary-button"
+                type="button"
+                onClick={() => openDialog({
+                  title: items.length > 0 ? 'Replace dataset' : 'Upload CSV',
+                  description: items.length > 0
+                    ? `Uploading "${selectedUploadName}" will permanently delete all ${items.length} existing batch${items.length !== 1 ? 'es' : ''} and every investment record linked to them. The new file becomes the sole source of truth.`
+                    : `"${selectedUploadName}" will be submitted for validation and import.`,
+                  confirmLabel: items.length > 0 ? 'Replace & upload' : 'Upload',
+                  tone: items.length > 0 ? 'danger' : 'default',
+                  onConfirm: handleUploadFile,
+                })}
+              >
+                {items.length > 0 ? 'Replace dataset' : 'Upload file'}
+              </button>
+            </div>
+          ) : null}
+        </section>
+
+        <section className="panel table-panel">
+          <div className="panel-header">
+            <h3>Upload history</h3>
+            <span className="table-count">{items.length} {items.length === 1 ? 'batch' : 'batches'}</span>
+          </div>
+          {uploadsOverview.status === 'loading' && items.length === 0 ? (
+            <div className="empty-state" role="status">
+              <div className="empty-state-icon"><Icon name="refresh" /></div>
+              <h4>Loading history</h4>
+            </div>
+          ) : items.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon"><Icon name="briefcase" /></div>
+              <h4>No uploads yet</h4>
+              <p>Drop a CSV file above to get started.</p>
+            </div>
+          ) : (
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">File</th>
+                    <th scope="col">Total</th>
+                    <th scope="col">Valid</th>
+                    <th scope="col">Invalid</th>
+                    <th scope="col">Date</th>
+                    <th scope="col">Status</th>
+                    <th scope="col" style={{ width: 220 }}>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map((item) => {
+                    const tone = item.status === 'imported' || item.status === 'partially_imported' ? 'good' : item.status === 'failed' ? 'warn' : 'neutral';
+                    return (
+                      <tr key={item.id}>
+                        <td><strong>{item.fileName}</strong></td>
+                        <td>{formatCount(item.totalRows)}</td>
+                        <td>{formatCount(item.validRows)}</td>
+                        <td>{formatCount(item.invalidRows)}</td>
+                        <td>{formatShortDate(item.createdAt)}</td>
+                        <td><span className={`pill pill-${tone}`}>{item.status.replace(/_/g, ' ')}</span></td>
+                        <td className="upload-actions-cell">
+                          <div className="upload-actions-wrap">
+                            {(item.status === 'validated' || item.status === 'importing' || item.status === 'partially_imported') && (
+                              <button
+                                className="table-action table-action-confirm"
+                                type="button"
+                                onClick={() => openDialog({
+                                  title: item.status === 'partially_imported' ? 'Retry import' : 'Confirm import',
+                                  description: item.status === 'partially_imported'
+                                    ? `Only some rows were imported last time. This will insert the remaining rows that are not yet in the database. Already-imported records will not be duplicated.`
+                                    : `Import ${formatCount(item.validRows)} valid row${item.validRows !== 1 ? 's' : ''} from "${item.fileName}" into the investment database. ${formatCount(item.invalidRows)} invalid row${item.invalidRows !== 1 ? 's' : ''} will be skipped.`,
+                                  confirmLabel: item.status === 'partially_imported' ? 'Retry import' : `Import ${formatCount(item.validRows)} rows`,
+                                  tone: 'default',
+                                  onConfirm: async () => {
+                                    await apiMutate('POST', `uploads/${item.id}/confirm`, {});
+                                    setPortfolioOverview({ status: 'idle', data: null, error: null });
+                                    setInvestmentsOverview({ status: 'idle', data: null, error: null });
+                                    setWealthManagersOverview({ status: 'idle', data: null, error: null });
+                                    setSummaryOverview({ status: 'idle', data: null, error: null });
+                                    // Re-fetch uploads immediately so the table stays visible with updated status
+                                    try {
+                                      const refreshed = await fetchViewData<UploadHistoryOverview>('uploads/history');
+                                      setUploadsOverview({ status: 'ready', data: refreshed, error: null });
+                                    } catch {
+                                      setUploadsOverview({ status: 'idle', data: null, error: null });
+                                    }
+                                    setNotice({ tone: 'info', message: `Import queued — records are being written to the database. All views will refresh shortly.` });
+                                  },
+                                })}
+                              >
+                                {item.status === 'partially_imported' ? 'Retry import' : 'Confirm import'}
+                              </button>
+                            )}
+                            <button
+                              className="table-action table-action-danger"
+                              type="button"
+                              onClick={() => openDialog({
+                                title: 'Delete batch',
+                                description: `"${item.fileName}" and all investment records imported from it (${formatCount(item.validRows)} valid rows) will be permanently deleted. Other batches are unaffected.`,
+                                confirmLabel: 'Delete batch',
+                                tone: 'danger',
+                                onConfirm: async () => {
+                                  await apiMutate('DELETE', 'uploads', { ids: [item.id] });
+                                  setPortfolioOverview({ status: 'idle', data: null, error: null });
+                                  setInvestmentsOverview({ status: 'idle', data: null, error: null });
+                                  setWealthManagersOverview({ status: 'idle', data: null, error: null });
+                                  setSummaryOverview({ status: 'idle', data: null, error: null });
+                                  setUploadsOverview({ status: 'idle', data: null, error: null });
+                                },
+                              })}
+                            >
+                              Delete<Icon name="x" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  function renderCustomerDrawer(): ReactNode {
+    if (!customerDrawer) return null;
+    const c = customerDrawer;
+    const leadTenor = getLeadingTenor(c.tenorExposure);
+
+    return (
+      <>
+        <div className="drawer-scrim" onClick={() => setCustomerDrawer(null)} aria-hidden="true" />
+        <aside className="drawer" role="dialog" aria-modal="true" aria-label={c.customerName}>
+          <div className="drawer-header">
+            <div>
+              <p className="eyebrow" style={{ marginBottom: 4 }}>Customer</p>
+              <h3>{c.customerName}</h3>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setCustomerDrawer(null)} aria-label="Close"><Icon name="x" /></button>
+          </div>
+          <div className="drawer-body">
+            <div className="form-grid form-grid-2col">
+              <div className="field-card">
+                <span className="field-label">Total Investment</span>
+                <p className="field-value">{formatCurrency(c.totalInvestment)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Investments</span>
+                <p className="field-value">{formatCount(c.investmentCount)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Book Share</span>
+                <p className="field-value">{formatPercent(c.contributionPercentage)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Customer Type</span>
+                <p className="field-value">{formatCustomerType(c.customerType)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Inflow</span>
+                <p className="field-value">{formatCurrency(c.inflowValue)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Rollover</span>
+                <p className="field-value">{formatCurrency(c.rolloverValue)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Last Amount</span>
+                <p className="field-value">{formatCurrency(c.lastInvestmentAmount)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Last Date</span>
+                <p className="field-value">{formatShortDate(c.lastInvestmentDate)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Top Tenor</span>
+                <p className="field-value">{leadTenor.label}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Tenor Value</span>
+                <p className="field-value">{formatCurrency(leadTenor.value)}</p>
+              </div>
+              <div className="field-card field-card-wide">
+                <span className="field-label">Customer ID</span>
+                <p className="field-value" style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>{c.customerId}</p>
+              </div>
+            </div>
+          </div>
+          <div className="drawer-footer">
+            <button className="secondary-button" type="button" onClick={() => setCustomerDrawer(null)}>Close</button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setCustomerDrawer(null);
+                navigate(`/portfolio/${c.customerId}`, { state: { customer: c, from: location.pathname } });
+              }}
+            >
+              View details
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  function renderInvestmentDrawer(): ReactNode {
+    if (!investmentDrawer) return null;
+    const item = investmentDrawer;
+    const tone = getToneFromMeta(`${item.recordStatus} ${item.importStatus}`);
+
+    return (
+      <>
+        <div className="drawer-scrim" onClick={() => setInvestmentDrawer(null)} aria-hidden="true" />
+        <aside className="drawer" role="dialog" aria-modal="true" aria-label="Investment record">
+          <div className="drawer-header">
+            <div>
+              <p className="eyebrow" style={{ marginBottom: 4 }}>Investment</p>
+              <h3>{item.customerName}</h3>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setInvestmentDrawer(null)} aria-label="Close"><Icon name="x" /></button>
+          </div>
+          <div className="drawer-body">
+            <div style={{ display: 'flex', gap: 6, marginBottom: 16 }}>
+              <span className={`pill pill-${tone}`}>{item.recordStatus}</span>
+              <span className={`pill pill-${tone}`}>{item.importStatus}</span>
+            </div>
+            <div className="form-grid form-grid-2col">
+              <div className="field-card">
+                <span className="field-label">Amount</span>
+                <p className="field-value">{formatCurrency(Number(item.investmentAmount))}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Currency</span>
+                <p className="field-value">{formatCurrencyCode(item.currency)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Fund Type</span>
+                <p className="field-value">{item.fundType}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Tenor</span>
+                <p className="field-value">{formatCount(item.tenorDays)} days</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Classification</span>
+                <p className="field-value">{formatTenorLabel(item.tenorCategory)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Customer Type</span>
+                <p className="field-value">{formatCustomerType(item.customerType)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Mobilised</span>
+                <p className="field-value">{formatShortDate(item.mobilisationDate)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Maturity</span>
+                <p className="field-value">{formatShortDate(item.maturityDate)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Manager</span>
+                <p className="field-value">{item.relationshipManager ?? '—'}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Channel</span>
+                <p className="field-value">{item.sourceChannel ?? item.dataSource}</p>
+              </div>
+              {item.investmentReference ? (
+                <div className="field-card field-card-wide">
+                  <span className="field-label">Reference</span>
+                  <p className="field-value" style={{ fontFamily: 'monospace', fontSize: '0.82rem' }}>{item.investmentReference}</p>
+                </div>
+              ) : null}
+              {item.costOfFunds ? (
+                <div className="field-card">
+                  <span className="field-label">Cost of Funds</span>
+                  <p className="field-value">{item.costOfFunds}%</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="drawer-footer">
+            <button className="secondary-button" type="button" onClick={() => setInvestmentDrawer(null)}>Close</button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setInvestmentDrawer(null);
+                navigate(`/investments/${item.id}`, { state: { investment: item, from: location.pathname } });
+              }}
+            >
+              View details
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  function renderManagerDrawer(): ReactNode {
+    if (!managerDrawer) return null;
+    const m = managerDrawer;
+    const dominantBucket = getDominantFundsAgingBucket(m.fundsAging);
+
+    return (
+      <>
+        <div className="drawer-scrim" onClick={() => setManagerDrawer(null)} aria-hidden="true" />
+        <aside className="drawer" role="dialog" aria-modal="true" aria-label={m.relationshipManager}>
+          <div className="drawer-header">
+            <div>
+              <p className="eyebrow" style={{ marginBottom: 4 }}>WEALTH Manager</p>
+              <h3>{m.relationshipManager}</h3>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setManagerDrawer(null)} aria-label="Close"><Icon name="x" /></button>
+          </div>
+          <div className="drawer-body">
+            <div className="form-grid form-grid-2col">
+              <div className="field-card">
+                <span className="field-label">AUM</span>
+                <p className="field-value">{formatCurrency(m.totalAum)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Accounts</span>
+                <p className="field-value">{formatCount(m.investmentAccountCount)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">NTB Volume</span>
+                <p className="field-value">{formatCurrency(m.ntbMetrics.volume)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">NTB Customers</span>
+                <p className="field-value">{formatCount(m.ntbMetrics.customerCount)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Returning Volume</span>
+                <p className="field-value">{formatCurrency(m.returningCustomerMetrics.volume)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Returning Customers</span>
+                <p className="field-value">{formatCount(m.returningCustomerMetrics.customerCount)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Inflow</span>
+                <p className="field-value">{formatCurrency(m.inflowValue)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Rollover</span>
+                <p className="field-value">{formatCurrency(m.rolloverValue)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Avg / Customer</span>
+                <p className="field-value">{formatCurrency(m.averageInvestmentPerCustomer)}</p>
+              </div>
+              <div className="field-card">
+                <span className="field-label">Dominant Aging</span>
+                <p className="field-value">{dominantBucket.label}</p>
+              </div>
+              {m.topCustomers[0] ? (
+                <div className="field-card field-card-wide">
+                  <span className="field-label">Top Customer</span>
+                  <p className="field-value">{m.topCustomers[0].customerName} — {formatCurrency(m.topCustomers[0].totalInvestment)}</p>
+                </div>
+              ) : null}
+            </div>
+          </div>
+          <div className="drawer-footer">
+            <button className="secondary-button" type="button" onClick={() => setManagerDrawer(null)}>Close</button>
+            <button
+              className="primary-button"
+              type="button"
+              onClick={() => {
+                setManagerDrawer(null);
+                navigate(`/wealth-managers/${encodeURIComponent(m.relationshipManager)}`, { state: { manager: m, from: location.pathname } });
+              }}
+            >
+              View details
+            </button>
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  function renderReportDrawer(): ReactNode {
+    if (!reportDrawer) return null;
+    const item = reportDrawer;
+    const tone = item.status === 'completed' ? 'good' : item.status === 'failed' ? 'warn' : 'neutral';
+
+    return (
+      <>
+        <div className="drawer-scrim" onClick={() => setReportDrawer(null)} aria-hidden="true" />
+        <aside className="drawer" role="dialog" aria-modal="true" aria-label="Report export">
+          <div className="drawer-header">
+            <div>
+              <h3>{formatReportType(item.reportType)} Export</h3>
+              <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <span className={`pill pill-${tone}`}>{item.status}</span>
+                <span className="pill pill-neutral">{formatOutputFormat(item.outputFormat)}</span>
+              </div>
+            </div>
+            <button className="icon-button" type="button" onClick={() => setReportDrawer(null)} aria-label="Close"><Icon name="x" /></button>
+          </div>
+          <div className="drawer-body">
+            <div className="drawer-info-list">
+              <div className="drawer-info-row"><span>Report Type</span><strong>{formatReportType(item.reportType)}</strong></div>
+              <div className="drawer-info-row"><span>Format</span><strong>{formatOutputFormat(item.outputFormat)}</strong></div>
+              <div className="drawer-info-row"><span>Status</span><strong>{item.status}</strong></div>
+              <div className="drawer-info-row"><span>Requested By</span><strong>{item.requestedBy}</strong></div>
+              <div className="drawer-info-row"><span>Created</span><strong>{formatDateTime(item.createdAt)}</strong></div>
+              {item.completedAt ? <div className="drawer-info-row"><span>Completed</span><strong>{formatDateTime(item.completedAt)}</strong></div> : null}
+              {item.fileSizeBytes ? <div className="drawer-info-row"><span>File Size</span><strong>{Math.round(item.fileSizeBytes / 1024)} KB</strong></div> : null}
+              {item.errorMessage ? <div className="drawer-info-row"><span>Error</span><strong style={{ color: 'var(--warn, #ca8a04)' }}>{item.errorMessage}</strong></div> : null}
+            </div>
+          </div>
+          <div className="drawer-footer">
+            <button className="secondary-button" type="button" onClick={() => setReportDrawer(null)}>Close</button>
+            {item.fileUrl ? (
+              <a className="primary-button" href={item.fileUrl} download target="_blank" rel="noreferrer">
+                Download
+              </a>
+            ) : null}
+          </div>
+        </aside>
+      </>
+    );
+  }
+
+  function renderCustomerDetailPage(customer: PortfolioCustomer): ReactNode {
+    const tenorData = Object.entries(customer.tenorExposure)
+      .sort(([, a], [, b]) => b - a)
+      .map(([key, value]) => ({ label: formatTenorLabel(key), value }));
+    const relatedInvestments = investmentItems.filter((i) => i.customerId === customer.customerId);
+    const gridStroke = 'rgba(20, 41, 37, 0.06)';
+
+    return (
+      <div className="trends-charts-page">
+        <div className="detail-back-bar">
+          <button type="button" className="detail-back-button" onClick={() => navigate(detailRoute?.from ?? '/portfolio')}>
+            <Icon name="chevron" />
+            {backLabelFromPath(detailRoute?.from ?? '/portfolio')}
+          </button>
         </div>
+
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{customer.customerId}</p>
+              <h2 className="detail-page-title">{customer.customerName}</h2>
+            </div>
+            <span className="pill pill-neutral">{formatCustomerType(customer.customerType)}</span>
+          </div>
+        </section>
+
+        <div className="detail-kpi-grid">
+          <article className="panel metric-card metric-card-good">
+            <p>Total Investment</p>
+            <strong>{formatCurrency(customer.totalInvestment)}</strong>
+            <span className="metric-delta metric-delta-good">{formatCount(customer.investmentCount)} investments</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Book Share</p>
+            <strong>{formatPercent(customer.contributionPercentage)}</strong>
+            <span className="metric-delta metric-delta-neutral">of total portfolio</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Inflow</p>
+            <strong>{formatCurrency(customer.inflowValue)}</strong>
+            <span className="metric-delta metric-delta-neutral">Rollover: {formatCurrency(customer.rolloverValue)}</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Last Investment</p>
+            <strong>{formatShortDate(customer.lastInvestmentDate)}</strong>
+            <span className="metric-delta metric-delta-neutral">{formatCurrency(customer.lastInvestmentAmount)}</span>
+          </article>
+        </div>
+
+        <div className="trends-chart-grid">
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Tenor</p><h3>Exposure breakdown</h3></div>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={tenorData} layout="vertical" margin={{ left: 8, right: 8 }}>
+                  <CartesianGrid horizontal={false} stroke={gridStroke} />
+                  <XAxis type="number" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} tickFormatter={(v: number) => formatCurrency(v)} />
+                  <YAxis type="category" dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={80} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                  <Bar dataKey="value" radius={[0, 10, 10, 0]} fill={chartToneColors.brand} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Fund Mix</p><h3>Inflow vs rollover</h3></div>
+              <strong className="trends-kpi">{formatCurrency(customer.totalInvestment)}</strong>
+            </div>
+            <div className="summary-kpi-list">
+              <div className="summary-kpi-row"><span className="trends-period-label">Inflow</span><strong>{formatCurrency(customer.inflowValue)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Rollover</span><strong>{formatCurrency(customer.rolloverValue)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Last amount</span><strong>{formatCurrency(customer.lastInvestmentAmount)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Last date</span><strong>{formatShortDate(customer.lastInvestmentDate)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Customer ID</span><strong style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{customer.customerId}</strong></div>
+            </div>
+          </article>
+        </div>
+
+        {relatedInvestments.length > 0 ? (
+          <section className="panel table-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Ledger</p>
+                <h3>Investment records for {customer.customerName}</h3>
+              </div>
+              <span className="table-count">{relatedInvestments.length} records on this page</span>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Investment ID</th>
+                    <th scope="col">Amount</th>
+                    <th scope="col">Customer Class</th>
+                    <th scope="col">Inflow</th>
+                    <th scope="col">Rollover</th>
+                    <th scope="col">Funds Class</th>
+                    <th scope="col">Tenure</th>
+                    <th scope="col">Creation Date</th>
+                    <th scope="col">Maturity Date</th>
+                    <th scope="col">Days to Maturity</th>
+                    <th scope="col">Act. Officer</th>
+                    <th scope="col">Team</th>
+                    <th scope="col">Channel</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {relatedInvestments.map((inv) => {
+                    const t = getToneFromMeta(`${inv.recordStatus} ${inv.importStatus}`);
+                    const rd2m = inv.days2Maturity;
+                    return (
+                      <tr key={inv.id}>
+                        <td><span style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{inv.investmentReference ?? inv.id.slice(0, 8)}</span></td>
+                        <td><span className="table-value-strong">{formatCurrency(Number(inv.investmentAmount))}</span></td>
+                        <td><span className={`pill pill-${inv.customerType === 'new' ? 'good' : 'neutral'}`}>{inv.customerType === 'new' ? 'NTB' : 'Returning'}</span></td>
+                        <td>{inv.fundType === 'inflow' ? <span className="table-value-strong">{formatCurrency(Number(inv.investmentAmount))}</span> : <span className="table-secondary-copy">—</span>}</td>
+                        <td>{inv.fundType === 'rollover' ? <span className="table-value-strong">{formatCurrency(Number(inv.investmentAmount))}</span> : <span className="table-secondary-copy">—</span>}</td>
+                        <td><span className="table-secondary-copy">{formatTenorLabel(inv.tenorCategory)}</span></td>
+                        <td><span className="table-secondary-copy">{formatCount(inv.tenorDays)}d</span></td>
+                        <td><span className="table-secondary-copy">{formatShortDate(inv.mobilisationDate)}</span></td>
+                        <td><span className="table-secondary-copy">{formatShortDate(inv.maturityDate)}</span></td>
+                        <td>{rd2m === null ? <span className="table-secondary-copy">—</span> : <span className={`pill pill-${rd2m < 0 ? 'danger' : rd2m <= 30 ? 'warn' : 'neutral'}`}>{rd2m < 0 ? `${Math.abs(rd2m)}d ago` : `${rd2m}d`}</span>}</td>
+                        <td><span className="table-secondary-copy">{inv.relationshipManager ?? '—'}</span></td>
+                        <td><span className="table-secondary-copy">{inv.team ?? '—'}</span></td>
+                        <td><span className="table-secondary-copy">{inv.sourceChannel ?? '—'}</span></td>
+                        <td><span className={`pill pill-${t}`}>{inv.importStatus}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : (
+          <section className="panel">
+            <div className="empty-state">
+              <div className="empty-state-icon"><Icon name="database" /></div>
+              <h4>No investment records on this page</h4>
+              <p>Navigate to Investments and search for {customer.customerId} to find related ledger entries.</p>
+            </div>
+          </section>
+        )}
+      </div>
+    );
+  }
+
+  function renderInvestmentDetailPage(item: InvestmentRecordItem): ReactNode {
+    const tone = getToneFromMeta(`${item.recordStatus} ${item.importStatus}`);
+    const relatedByCustomer = investmentItems.filter((i) => i.customerId === item.customerId && i.id !== item.id);
+    const d2m = item.days2Maturity;
+    const d2mTone = d2m === null ? 'neutral' : d2m < 0 ? 'danger' : d2m <= 30 ? 'warn' : 'good';
+
+    return (
+      <div className="trends-charts-page">
+        <div className="detail-back-bar">
+          <button type="button" className="detail-back-button" onClick={() => navigate(detailRoute?.from ?? '/investments')}>
+            <Icon name="chevron" />
+            {backLabelFromPath(detailRoute?.from ?? '/investments')}
+          </button>
+        </div>
+
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">{item.investmentReference ?? item.id}</p>
+              <h2 className="detail-page-title">{item.customerName}</h2>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <span className={`pill pill-${item.customerType === 'new' ? 'good' : 'neutral'}`}>{item.customerType === 'new' ? 'NTB' : 'Returning'}</span>
+              <span className={`pill pill-${tone}`}>{item.importStatus}</span>
+            </div>
+          </div>
+        </section>
+
+        <div className="detail-kpi-grid">
+          <article className="panel metric-card metric-card-good">
+            <p>Amount</p>
+            <strong>{formatCurrency(Number(item.investmentAmount))}</strong>
+            <span className="metric-delta metric-delta-neutral">{formatCurrencyCode(item.currency)}</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Funds Class</p>
+            <strong>{formatTenorLabel(item.tenorCategory)}</strong>
+            <span className="metric-delta metric-delta-neutral">{item.fundType === 'inflow' ? 'Inflow' : 'Rollover'}</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Tenure</p>
+            <strong>{formatCount(item.tenorDays)} days</strong>
+            <span className="metric-delta metric-delta-neutral">Creation: {formatShortDate(item.mobilisationDate)}</span>
+          </article>
+          <article className={`panel metric-card metric-card-${d2mTone}`}>
+            <p>Days to Maturity</p>
+            <strong>{d2m === null ? '—' : d2m < 0 ? `${Math.abs(d2m)}d overdue` : `${d2m}d`}</strong>
+            <span className="metric-delta metric-delta-neutral">Maturity: {formatShortDate(item.maturityDate)}</span>
+          </article>
+        </div>
+
+        <div className="trends-chart-grid">
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact"><div><p className="eyebrow">Investment</p><h3>Investment details</h3></div></div>
+            <div className="summary-kpi-list">
+              <div className="summary-kpi-row"><span className="trends-period-label">Investment ID</span><strong style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.investmentReference ?? '—'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">User ID</span><strong style={{ fontFamily: 'monospace', fontSize: '0.8rem' }}>{item.customerId}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Customer Class</span><strong>{item.customerType === 'new' ? 'NTB (New to Bank)' : 'Returning'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Inflow</span><strong>{item.fundType === 'inflow' ? formatCurrency(Number(item.investmentAmount)) : '—'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Rollover</span><strong>{item.fundType === 'rollover' ? formatCurrency(Number(item.investmentAmount)) : '—'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Cost of Funds</span><strong>{item.costOfFunds ? `${item.costOfFunds}%` : '—'}</strong></div>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact"><div><p className="eyebrow">Operations</p><h3>Operational details</h3></div></div>
+            <div className="summary-kpi-list">
+              <div className="summary-kpi-row"><span className="trends-period-label">Act. Officer</span><strong>{item.relationshipManager ?? '—'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Team</span><strong>{item.team ?? '—'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Channel</span><strong>{item.sourceChannel ?? '—'}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Status</span><strong>{item.importStatus}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Creation Date</span><strong>{formatShortDate(item.mobilisationDate)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Maturity Date</span><strong>{formatShortDate(item.maturityDate)}</strong></div>
+            </div>
+          </article>
+        </div>
+
+        {relatedByCustomer.length > 0 ? (
+          <section className="panel table-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Same customer</p>
+                <h3>Other investments by {item.customerName}</h3>
+              </div>
+              <span className="table-count">{relatedByCustomer.length} records</span>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Investment ID</th>
+                    <th scope="col">Amount</th>
+                    <th scope="col">Inflow</th>
+                    <th scope="col">Rollover</th>
+                    <th scope="col">Tenure</th>
+                    <th scope="col">Funds Class</th>
+                    <th scope="col">Creation Date</th>
+                    <th scope="col">Maturity Date</th>
+                    <th scope="col">Days to Maturity</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {relatedByCustomer.map((inv) => {
+                    const t = getToneFromMeta(`${inv.recordStatus} ${inv.importStatus}`);
+                    const rd2m = inv.days2Maturity;
+                    return (
+                      <tr key={inv.id}>
+                        <td><span style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>{inv.investmentReference ?? inv.id.slice(0, 8)}</span></td>
+                        <td><span className="table-value-strong">{formatCurrency(Number(inv.investmentAmount))}</span></td>
+                        <td>{inv.fundType === 'inflow' ? <span className="table-value-strong">{formatCurrency(Number(inv.investmentAmount))}</span> : <span className="table-secondary-copy">—</span>}</td>
+                        <td>{inv.fundType === 'rollover' ? <span className="table-value-strong">{formatCurrency(Number(inv.investmentAmount))}</span> : <span className="table-secondary-copy">—</span>}</td>
+                        <td><span className="table-secondary-copy">{formatCount(inv.tenorDays)}d</span></td>
+                        <td><span className="table-secondary-copy">{formatTenorLabel(inv.tenorCategory)}</span></td>
+                        <td><span className="table-secondary-copy">{formatShortDate(inv.mobilisationDate)}</span></td>
+                        <td><span className="table-secondary-copy">{formatShortDate(inv.maturityDate)}</span></td>
+                        <td>{rd2m === null ? <span className="table-secondary-copy">—</span> : <span className={`pill pill-${rd2m < 0 ? 'danger' : rd2m <= 30 ? 'warn' : 'neutral'}`}>{rd2m < 0 ? `${Math.abs(rd2m)}d ago` : `${rd2m}d`}</span>}</td>
+                        <td><span className={`pill pill-${t}`}>{inv.importStatus}</span></td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
+      </div>
+    );
+  }
+
+  function renderManagerDetailPage(manager: WealthManagerRecord): ReactNode {
+    const agingItems = getFundsAgingDisplayItems(manager.fundsAging);
+    const agingData = agingItems.map((i) => ({ label: i.label, value: i.value }));
+    const agingTotal = agingItems.reduce((s, i) => s + i.value, 0);
+    const gridStroke = 'rgba(20, 41, 37, 0.06)';
+
+    return (
+      <div className="trends-charts-page">
+        <div className="detail-back-bar">
+          <button type="button" className="detail-back-button" onClick={() => navigate(detailRoute?.from ?? '/wealth-managers')}>
+            <Icon name="chevron" />
+            {backLabelFromPath(detailRoute?.from ?? '/wealth-managers')}
+          </button>
+        </div>
+
+        <section className="panel">
+          <div className="panel-header">
+            <div>
+              <p className="eyebrow">WEALTH Manager</p>
+              <h2 className="detail-page-title">{manager.relationshipManager}</h2>
+            </div>
+          </div>
+        </section>
+
+        <div className="detail-kpi-grid">
+          <article className="panel metric-card metric-card-good">
+            <p>AUM</p>
+            <strong>{formatCurrency(manager.totalAum)}</strong>
+            <span className="metric-delta metric-delta-neutral">{formatCount(manager.investmentAccountCount)} accounts</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>NTB Volume</p>
+            <strong>{formatCurrency(manager.ntbMetrics.volume)}</strong>
+            <span className="metric-delta metric-delta-neutral">{formatCount(manager.ntbMetrics.customerCount)} customers</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Returning Volume</p>
+            <strong>{formatCurrency(manager.returningCustomerMetrics.volume)}</strong>
+            <span className="metric-delta metric-delta-neutral">{formatCount(manager.returningCustomerMetrics.customerCount)} customers</span>
+          </article>
+          <article className="panel metric-card metric-card-neutral">
+            <p>Avg / Customer</p>
+            <strong>{formatCurrency(manager.averageInvestmentPerCustomer)}</strong>
+            <span className="metric-delta metric-delta-neutral">per customer average</span>
+          </article>
+        </div>
+
+        <div className="trends-chart-grid">
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Aging</p><h3>Funds aging buckets</h3></div>
+              <strong className="trends-kpi">{formatCurrency(agingTotal)}</strong>
+            </div>
+            <div className="trends-chart-canvas">
+              <ResponsiveContainer width="100%" height={210}>
+                <BarChart data={agingData}>
+                  <CartesianGrid vertical={false} stroke={gridStroke} />
+                  <XAxis dataKey="label" axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 10 }} />
+                  <YAxis axisLine={false} tickLine={false} tick={{ fill: chartToneColors.muted, fontSize: 11 }} width={60} tickFormatter={(v: number) => formatCurrency(v)} />
+                  <Tooltip formatter={(v) => formatCurrency(Number(v))} />
+                  <Bar dataKey="value" radius={[10, 10, 0, 0]} fill={chartToneColors.brand} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </article>
+
+          <article className="panel trends-chart-panel">
+            <div className="panel-header compact">
+              <div><p className="eyebrow">Portfolio</p><h3>Mix &amp; metrics</h3></div>
+            </div>
+            <div className="summary-kpi-list">
+              <div className="summary-kpi-row"><span className="trends-period-label">Inflow</span><strong>{formatCurrency(manager.inflowValue)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Rollover</span><strong>{formatCurrency(manager.rolloverValue)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">NTB Mobilisation</span><strong>{formatCurrency(manager.newCustomerMobilisation.investmentValue)}</strong></div>
+              <div className="summary-kpi-row"><span className="trends-period-label">Returning Mobilisation</span><strong>{formatCurrency(manager.returningCustomerMobilisation.investmentValue)}</strong></div>
+            </div>
+          </article>
+        </div>
+
+        {manager.topCustomers.length > 0 ? (
+          <section className="panel table-panel">
+            <div className="panel-header">
+              <div>
+                <p className="eyebrow">Customers</p>
+                <h3>Top customers under {manager.relationshipManager}</h3>
+              </div>
+              <span className="table-count">{manager.topCustomers.length} customers</span>
+            </div>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th scope="col" className="table-rank-col">Rank</th>
+                    <th scope="col">Customer</th>
+                    <th scope="col">Total Investment</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {manager.topCustomers.map((tc, i) => (
+                    <tr key={tc.customerId}>
+                      <td className="table-rank-col">{i + 1}</td>
+                      <td>
+                        <div className="table-primary-cell">
+                          <strong>{tc.customerName}</strong>
+                          <small>{tc.customerId}</small>
+                        </div>
+                      </td>
+                      <td><span className="table-value-strong">{formatCurrency(tc.totalInvestment)}</span></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ) : null}
       </div>
     );
   }
 
   function renderWorkbench(): ReactNode {
-    if (currentView === 'uploads') {
-      return (
-        <section className="detail-panel panel upload-workbench-panel">
-          <div className="panel-header">
-            <div>
-              <h3>CSV upload</h3>
-            </div>
-            <span className="pill pill-warn">CSV</span>
-          </div>
-
-          <div className="form-grid">
-            <label className="field-card field-card-wide upload-field">
-              <span className="field-label">File</span>
-              <input
-                type="file"
-                accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                onChange={handleUploadSelection}
-              />
-              {selectedUploadName ? <small className="upload-selection">Selected: {selectedUploadName}</small> : null}
-            </label>
-          </div>
-
-          <div className="panel-footer">
-            <div className="panel-footer-actions">
-              <button className="secondary-button" type="button" onClick={() => openDialog({ title: currentDefinition.secondaryActionLabel, description: 'Open the current upload errors and validation exceptions.', confirmLabel: currentDefinition.secondaryActionLabel, tone: 'default' })}>
-                {currentDefinition.secondaryActionLabel}
-              </button>
-              <button className="primary-button" type="button" onClick={() => openDialog({ title: currentDefinition.actionLabel, description: selectedUploadName ? `${selectedUploadName} is staged for upload review.` : 'Choose a CSV file first to start the upload flow.', confirmLabel: currentDefinition.actionLabel, tone: 'default' })}>
-                {currentDefinition.actionLabel}
-              </button>
-            </div>
-          </div>
-        </section>
-      );
-    }
-
     return null;
   }
 
@@ -3963,8 +5989,6 @@ function App() {
         </nav>
 
         <div className="sidebar-footer">
-          <span className={`status-chip status-chip-${health.status}`}>{health.label}</span>
-          <p>{health.details}</p>
         </div>
       </aside>
 
@@ -3974,25 +5998,17 @@ function App() {
             <button className="menu-trigger" type="button" onClick={() => setMobileNavOpen(true)} aria-label="Open navigation">
               <Icon name="grid" />
             </button>
-            <div>
-              <p className="eyebrow topbar-eyebrow">Platform Shell</p>
-              <div className="topbar-heading-row">
-                <strong>WealthTrack dashboard</strong>
-                <span className="status-chip status-chip-neutral">{currentDefinition.statusLabel}</span>
-              </div>
-            </div>
+            <strong>WealthTrack</strong>
           </div>
 
           <div className="topbar-actions">
-            <span className="status-chip status-chip-neutral">Portfolio Admin</span>
-
-            <button className="icon-button" type="button" aria-label="Search notifications">
+            <button className="icon-button" type="button" aria-label="Search">
               <Icon name="search" />
             </button>
             <button className="icon-button" type="button" aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} onClick={toggleTheme}>
               <Icon name={isDark ? 'sun' : 'moon'} />
             </button>
-            <button className="icon-button" type="button" aria-label="Open notifications">
+            <button className="icon-button" type="button" aria-label="Notifications">
               <Icon name="bell" />
             </button>
 
@@ -4017,7 +6033,7 @@ function App() {
         </header>
 
         <div className="content-shell">
-          <header className="page-title-row" aria-label={`${currentDefinition.heroTitle} page header`}>
+          <header className="page-title-row" aria-label={`${currentDefinition.heroTitle} page header`} style={{ display: detailRoute !== null ? 'none' : undefined }}>
             <div className="page-title-info">
               <h1 className="page-title">{currentDefinition.heroTitle}</h1>
             </div>
@@ -4026,9 +6042,13 @@ function App() {
           {notice ? <div className={`feedback-banner feedback-${notice.tone}`}>{notice.message}</div> : null}
           {currentView !== 'reports' && currentLoadState.status === 'error' ? <div className="feedback-banner feedback-warn">Live data is unavailable for this tab: {currentLoadState.error}</div> : null}
 
-          {currentView === 'reports' ? renderReportsOverview() : currentView === 'users' ? renderUsersPage() : currentView === 'settings' ? renderSettingsPage() : (
+          {detailRoute !== null ? (
+            detailRoute.kind === 'customer' ? renderCustomerDetailPage(detailRoute.data) :
+            detailRoute.kind === 'investment' ? renderInvestmentDetailPage(detailRoute.data) :
+            renderManagerDetailPage(detailRoute.data)
+          ) : currentView === 'reports' ? renderReportsOverview() : currentView === 'users' ? renderUsersPage() : currentView === 'settings' ? renderSettingsPage() : currentView === 'uploads' ? renderUploadsPage() : currentView === 'summary' ? renderSummaryPage() : (
             <>
-              {currentView === 'portfolio' || currentView === 'wealth-managers' || currentView === 'investments' || currentView === 'trends' ? null : (
+              {currentView === 'portfolio' || currentView === 'wealth-managers' || currentView === 'commissions' || currentView === 'investments' || currentView === 'trends' ? null : (
                 <section className="toolbar panel">
                   <div className="toolbar-search-block">
                     <label className="toolbar-label" htmlFor="dashboard-search">Search</label>
@@ -4044,17 +6064,6 @@ function App() {
                   </div>
 
                   <div className="toolbar-filter-block">
-                    <span className="toolbar-label">Window</span>
-                    <div className="range-toggle" role="tablist" aria-label="Select reporting window">
-                      {rangeOptions.map((option) => (
-                        <button key={option} className={option === activeRange ? 'range-option range-option-active' : 'range-option'} type="button" onClick={() => setActiveRange(option)}>
-                          {option}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="toolbar-summary-block">
                     <span className="toolbar-label">Visible rows</span>
                     <strong>{filteredCountLabel}</strong>
                   </div>
@@ -4079,6 +6088,8 @@ function App() {
                     renderInvestmentRecords()
                   ) : currentView === 'wealth-managers' ? (
                     renderWealthManagers()
+                  ) : currentView === 'commissions' ? (
+                    renderCommissionsPage()
                   ) : currentView === 'trends' ? (
                     renderTrends()
                   ) : (
@@ -4086,8 +6097,7 @@ function App() {
                       <section className="panel table-panel">
                         <div className="panel-header">
                           <div>
-                            {currentView === 'uploads' ? null : <p className="eyebrow">Primary read model</p>}
-                            <h3>{currentView === 'uploads' ? 'Upload history' : currentDefinition.title}</h3>
+                            <h3>{currentDefinition.title}</h3>
                           </div>
                           <div className="panel-header-actions">
                             <span className="table-count">{filteredRows.length} rows</span>
@@ -4106,8 +6116,8 @@ function App() {
                         ) : filteredRows.length === 0 ? (
                           <div className="empty-state" role="status" aria-live="polite">
                             <div className="empty-state-icon"><Icon name="search" /></div>
-                            <h4>{emptyStateCopyByView[currentView].title}</h4>
-                            <p>{emptyStateCopyByView[currentView].description}</p>
+                            <h4>{emptyStateCopyByView[currentDefinition.id].title}</h4>
+                            <p>{emptyStateCopyByView[currentDefinition.id].description}</p>
                             <button className="secondary-button" type="button" onClick={() => setSearchQuery('')}>
                               Reset search
                             </button>
@@ -4170,12 +6180,16 @@ function App() {
         </div>
       </main>
 
+      {renderCustomerDrawer()}
+      {renderInvestmentDrawer()}
+      {renderManagerDrawer()}
+      {renderReportDrawer()}
+
       {dialogIntent ? (
         <div className="dialog-scrim" role="presentation">
           <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
             <div className="dialog-header">
               <div>
-                <p className="eyebrow">Confirm action</p>
                 <h3 id="dialog-title">{dialogIntent.title}</h3>
               </div>
               <button className="icon-button" type="button" aria-label="Close dialog" onClick={() => setDialogIntent(null)} disabled={isDialogBusy}>
@@ -4185,10 +6199,7 @@ function App() {
 
             <p className="dialog-copy">{dialogIntent.description}</p>
 
-            <div className={dialogIntent.tone === 'danger' ? 'dialog-alert dialog-alert-danger' : 'dialog-alert'}>
-              <Icon name={dialogIntent.tone === 'danger' ? 'alert' : 'check'} />
-              <span>{dialogIntent.tone === 'danger' ? 'This action changes the current workflow and should be reviewed carefully.' : 'This action stays within the current page context and keeps the shell flow intact.'}</span>
-            </div>
+
 
             <div className="dialog-actions">
               <button className="secondary-button" type="button" onClick={() => setDialogIntent(null)} disabled={isDialogBusy}>

@@ -78,7 +78,7 @@ export interface UploadBatchRow {
   fileUrl: string;
   fileChecksum: string;
   uploadedBy: string;
-  status: 'pending' | 'processing' | 'validated' | 'failed' | 'imported' | 'partially_imported' | 'cancelled';
+  status: 'pending' | 'processing' | 'validated' | 'importing' | 'failed' | 'imported' | 'partially_imported' | 'cancelled';
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -151,7 +151,7 @@ export interface InvestmentRecordRow {
   importBatchId: string | null;
   uploadBatchRowId: string | null;
   syncBatchId: string | null;
-  dataSource: 'csv_upload' | 'api_sync' | 'db_sync';
+  dataSource: 'csv_upload' | 'api_sync' | 'db_sync' | 'google_sheets';
   importStatus: 'pending' | 'confirmed' | 'rejected' | 'archived';
   recordStatus: 'valid' | 'invalid' | 'duplicate' | 'archived';
   sourceRecordHash: string | null;
@@ -178,10 +178,33 @@ export interface IdempotencyKeyRow {
   expiresAt: string;
 }
 
+export interface GoogleSheetTabRow {
+  id: string;
+  integrationSourceId: string;
+  sheetId: string;
+  sheetTitle: string;
+  rangeNotation: string;
+  columnMapping: Record<string, string>;
+  status: 'active' | 'ignored';
+  lastSyncedAt: string | null;
+  lastRowCount: number | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface GoogleSheetRowChecksumRow {
+  id: string;
+  sheetTabId: string;
+  rowIndex: number;
+  rowChecksum: string;
+  investmentRecordId: string | null;
+  syncedAt: string;
+}
+
 export interface IntegrationSourceRow {
   id: string;
   name: string;
-  sourceType: 'api' | 'database';
+  sourceType: 'api' | 'database' | 'google_sheets';
   status: 'active' | 'inactive' | 'failed';
   secretRef: string;
   connectionConfig: Record<string, unknown> | null;

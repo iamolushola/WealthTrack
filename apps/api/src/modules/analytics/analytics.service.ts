@@ -262,8 +262,8 @@ export class AnalyticsService {
     };
   }
 
-  async customerPortfolio(page = 1, pageSize = 25): Promise<object> {
-    const investments = await this.analyticsInvestmentRepository.listConfirmedValid();
+  async customerPortfolio(page = 1, pageSize = 25, filter?: { q?: string; customerType?: 'new' | 'returning' }): Promise<object> {
+    const investments = await this.analyticsInvestmentRepository.listConfirmedValid(filter);
     const totalInvestmentAll = investments.reduce((s, r) => s + Number(r.investmentAmount), 0);
 
     type CustomerAcc = {
@@ -338,7 +338,7 @@ export class AnalyticsService {
     return { customerId, items };
   }
 
-  async wealthManagers(): Promise<object> {
+  async wealthManagers(filter?: { q?: string }): Promise<object> {
     const investments = await this.analyticsInvestmentRepository.listConfirmedValid();
 
     type ManagerAcc = {
@@ -400,6 +400,10 @@ export class AnalyticsService {
     const allReturningCustomers = investments.filter((r) => r.customerType === 'returning');
 
     const items = Array.from(byManager.entries())
+      .filter(([relationshipManager]) => {
+        if (!filter?.q) return true;
+        return relationshipManager.toLowerCase().includes(filter.q.toLowerCase());
+      })
       .sort(([, a], [, b]) => b.totalInvestment - a.totalInvestment)
       .map(([relationshipManager, acc]) => {
         const customerEntries = Array.from(acc.customers.entries());

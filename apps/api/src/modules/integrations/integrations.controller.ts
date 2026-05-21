@@ -5,6 +5,7 @@ import { RequirePermissions } from '../../common/decorators/permissions.decorato
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { CreateIntegrationRequestDto } from './dto/requests/create-integration.request.dto';
 import { UpdateIntegrationRequestDto } from './dto/requests/update-integration.request.dto';
+import { UpdateSheetTabRequestDto } from './dto/requests/update-sheet-tab.request.dto';
 import { IntegrationsService } from './integrations.service';
 
 @UseGuards(PermissionGuard)
@@ -59,5 +60,30 @@ export class IntegrationsController {
   @Get(':id/sync-logs')
   syncLogs(@Param('id') id: string, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
     return this.integrationsService.syncLogs(id, actor);
+  }
+
+  // ── Google Sheets-specific endpoints ─────────────────────────────────────
+
+  @RequirePermissions('integrations.create')
+  @Post(':id/discover-tabs')
+  discoverTabs(@Param('id') id: string, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
+    return this.integrationsService.discoverSheetTabs(id, actor);
+  }
+
+  @RequirePermissions('integrations.read')
+  @Get(':id/tabs')
+  listTabs(@Param('id') id: string, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
+    return this.integrationsService.listSheetTabs(id, actor);
+  }
+
+  @RequirePermissions('integrations.update')
+  @Patch(':id/tabs/:tabId')
+  updateTab(
+    @Param('id') id: string,
+    @Param('tabId') tabId: string,
+    @Body() payload: UpdateSheetTabRequestDto,
+    @CurrentActor() actor: AuthenticatedActor,
+  ): Promise<object> {
+    return this.integrationsService.updateSheetTab(id, tabId, payload, actor);
   }
 }

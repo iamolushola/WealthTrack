@@ -265,3 +265,688 @@ After approving this plan, the next concrete deliverables should be:
 2. NestJS module skeletons and shared config package
 3. migration runner wiring and local Docker Compose for MySQL and Redis
 4. OpenAPI-first DTO contracts for auth, uploads, dashboards, reports, and integrations
+
+---
+
+## Phase 8: customers, investments, and managers — detail views and interaction architecture
+
+### Objective
+
+Elevate the Customers (`/portfolio`), Investments (`/investments`), and Managers (`/wealth-managers`) tabs from paginated list surfaces into full interaction layers. Each tab gains a standardised side drawer for row-level actions and a dedicated inner-page detail view for granular drill-down. Navigation preserves pagination and scroll state so that returning from a detail view restores the user's exact prior list position.
+
+---
+
+### 8.1 Frontend architecture
+
+#### 8.1.1 Routing evolution
+
+The current `currentView` map uses twelve static pathnames. Detail routes introduce dynamic segments. The App component already uses `useNavigate`, `useLocation`, and React Router's `BrowserRouter`, so parametric routes are addable without re-architecting the shell.
+
+Extend `currentView` resolution to detect detail sub-paths and expose the active param alongside the view identifier:
+
+```typescript
+type ViewId =
+  | 'summary' | 'trends'
+  | 'portfolio' | 'portfolio-detail'
+  | 'investments' | 'investment-detail'
+  | 'wealth-managers' | 'manager-detail'
+  | 'uploads' | 'reports' | 'users' | 'settings';
+
+type ActiveRoute =
+  | { view: Exclude<ViewId, 'portfolio-detail' | 'investment-detail' | 'manager-detail'>; param: null }
+  | { view: 'portfolio-detail';   param: string }   // customerId
+  | { view: 'investment-detail';  param: string }   // investmentId
+  | { view: 'manager-detail';     param: string };  // encodedManagerName
+```
+
+Route path additions (added to `viewPaths` and `pathMap`):
+
+| Route | ViewId | Param |
+|---|---|---|
+| `/portfolio/:customerId` | `portfolio-detail` | `customerId` |
+| `/investments/:investmentId` | `investment-detail` | `investmentId` |
+| `/wealth-managers/:managerId` | `manager-detail` | `managerId` |
+
+`managerId` is the URL-encoded relationship manager name, since managers are not currently stored as first-class entity rows in the database.
+
+#### 8.1.2 Pagination and scroll state preservation
+
+State that must survive navigation to a detail view and back:
+
+| Module | State to preserve |
+|---|---|
+| Customers | `page`, `pageSize`, `searchQuery`, `activeCustomerStatus`, `scrollY` |
+| Investments | `page`, `pageSize`, `searchQuery`, `activeRange`, scroll position |
+| Managers | `searchQuery`, scroll position |
+
+Implementation: encode the list state into the navigation `state` object on every `navigate()` call that enters a detail view. On detail-to-list back-navigation, read `location.state` and rehydrate. Do not use `localStorage` for this — the state is scoped to a single browsing session and `location.state` is cleared when the tab is closed, which is the correct behaviour.
+
+```typescript
+// navigating INTO a detail view
+navigate(`/portfolio/${customerId}`, {
+  state: {
+    fromList: true,
+    page: portfolioPage,
+    pageSize: portfolioPageSize,
+    searchQuery,
+    activeCustomerStatus,
+    scrollY: window.scrollY,
+  },
+});
+
+// navigating BACK to the list
+const back = (location.state as ListReturnState | null);
+if (back?.fromList) {
+  navigate('/portfolio', { replace: true });
+  setPortfolioPage(back.page);
+  setPortfolioPageSize(back.pageSize);
+  setSearchQuery(back.searchQuery);
+  setActiveCustomerStatus(back.activeCustomerStatus);
+  requestAnimationFrame(() => window.scrollTo(0, back.scrollY));
+} else {
+  navigate('/portfolio');
+}
+```
+
+State variables to add to App component:
+
+```typescript
+const [portfolioPage, setPortfolioPage]       = useState(1);
+const [portfolioPageSize, setPortfolioPageSize] = useState(25);
+const [investmentsPage, setInvestmentsPage]   = useState(1);
+const [investmentsPageSize, setInvestmentsPageSize] = useState(50);
+```
+
+#### 8.1.3 Side drawer component
+
+A single reusable `ActionDrawer` pattern (matching the existing Invite User / Create Role drawer implementation) is used for all list-row actions. The same `.drawer-scrim`, `.drawer`, `.drawer-header`, `.drawer-body`, and `.drawer-footer` CSS classes apply.
+
+Each module has its own drawer state variable:
+
+```typescript
+type PortfolioDrawer = { mode: 'customer'; customerId: string; customerName: string } | { mode: null };
+type InvestmentDrawer = { mode: 'record';  investmentId: string } | { mode: null };
+type ManagerDrawer    = { mode: 'manager'; managerId: string; managerName: string } | { mode: null };
+
+const [portfolioDrawer, setPortfolioDrawer] = useState<PortfolioDrawer>({ mode: null });
+const [investmentDrawer, setInvestmentDrawer] = useState<InvestmentDrawer>({ mode: null });
+const [managerDrawer, setManagerDrawer] = useState<ManagerDrawer>({ mode: null });
+```
+
+**Customer action drawer — contents:**
+
+- Customer name and customer type badge at the top
+- Four stat cards: Total mobilised, Investment count, Inflow value, Rollover value
+- Tenor exposure mini-bar (inline `<progress>`-style segments for each tenor category)
+- Primary CTA: "View full profile" — navigates to `/portfolio/:customerId` with list state in `navigate` state
+- Secondary CTA: "Export history" — opens the report creation dialog pre-filled for `customer_portfolio` type with that customer's ID
+- Danger CTA (admin only, permission-guarded): "Remove customer data" — opens confirmation dialog for bulk delete
+
+**Investment action drawer — contents:**
+
+- Investment reference and status badges
+- Eight data fields: Amount, Fund type, Tenor, Maturity date, Source channel, Relationship manager, Import batch, Data source
+- Validation status: record status pill + import status pill
+- Primary CTA: "View investment detail" — navigates to `/investments/:investmentId`
+- Secondary CTA (admin only): "Flag for review" — POST to a future `investments/:id/flags` endpoint
+
+**Manager action drawer — contents:**
+
+- Manager name at top
+- Five KPI stat cards: Total AUM, Customer count, NTB customers, Inflow value, Avg. cost of funds
+- Top-3 customers table (name + AUM, truncated list)
+- Primary CTA: "View manager profile" — navigates to `/wealth-managers/:managerId`
+- Secondary CTA: "Export manager report" — opens report dialog pre-filled for `wealth_manager` type
+
+#### 8.1.4 List row action wiring
+
+Replace all existing inline dialog triggers on list rows with drawer triggers. Each list row's action cell changes from:
+
+```tsx
+<button className="table-action" onClick={() => openDialog(...)}>
+  View details <Icon name="launch" />
+</button>
+```
+
+to:
+
+```tsx
+// Customers
+<button className="table-action" onClick={() => setPortfolioDrawer({ mode: 'customer', customerId: c.customerId, customerName: c.customerName })}>
+  View details <Icon name="chevron-right" />
+</button>
+
+// Investments
+<button className="table-action" onClick={() => setInvestmentDrawer({ mode: 'record', investmentId: item.id })}>
+  View record <Icon name="chevron-right" />
+</button>
+
+// Managers
+<button className="table-action" onClick={() => setManagerDrawer({ mode: 'manager', managerId: encodeURIComponent(m.relationshipManager), managerName: m.relationshipManager })}>
+  View details <Icon name="chevron-right" />
+</button>
+```
+
+#### 8.1.5 Detail page inner layout
+
+Each detail page uses the same `.trends-charts-page` shell and follows the Trends page visual language: a toolbar-style header strip, chart panels in a `.trends-chart-grid`, and a data table below.
+
+**Customer profile page (`/portfolio/:customerId`):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ← Back to Customers     [Customer Name]    [customer type]  │ ← page-title-row
+├─────────────────────────────────────────────────────────────┤
+│ [AUM Total] [Count] [Inflow] [Rollover] [Avg Ticket]        │ ← 5 trends-chart-panel KPI cards (1 row, compact)
+├──────────────────────┬──────────────────────────────────────┤
+│ Mobilisation over    │  Tenor exposure                      │ ← trends-chart-grid (2 cols)
+│ time (area chart)    │  (horizontal bar chart)              │
+├──────────────────────┴──────────────────────────────────────┤
+│ All investments for this customer (data-table)              │ ← sortable, with status pills
+└─────────────────────────────────────────────────────────────┘
+```
+
+Data fetched from `GET /api/v1/dashboard/customer-portfolio/:customerId` (enhanced — see section 8.2.2).
+
+State variables specific to this detail view:
+
+```typescript
+const [customerDetail, setCustomerDetail] = useState<AsyncState<CustomerDetailResponse>>({ status: 'idle', data: null, error: null });
+```
+
+**Investment detail page (`/investments/:investmentId`):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ← Back to Investments   [Reference]    [status] [import]    │
+├──────────────────────┬──────────────────────────────────────┤
+│ Record details        │  Lifecycle & provenance             │
+│ (summary-kpi-list)   │  (summary-kpi-list)                  │
+├──────────────────────┴──────────────────────────────────────┤
+│ Customer context: other investments by same customer        │
+│ (compact table, max 10 rows, link to full customer view)    │
+└─────────────────────────────────────────────────────────────┘
+```
+
+Data fetched from `GET /api/v1/investments/:investmentId` (new — see section 8.2.3).
+
+**Manager profile page (`/wealth-managers/:managerId`):**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│ ← Back to Managers   [Manager Name]                         │
+├──────────────────────────────────────────────────────────────┤
+│ [AUM] [Customers] [NTB] [Returning] [Inflow] [CoF]         │ ← 6 KPI panels
+├──────────────────────┬──────────────────────────────────────┤
+│ AUM over time        │  Customer mix                        │ ← area + pie chart
+│ (area chart)         │  (NTB vs returning donut)            │
+├──────────────────────┬──────────────────────────────────────┤
+│ Fund aging buckets   │  Top customers                       │
+│ (stacked bar)        │  (ranked table, top 10)              │
+└──────────────────────┴──────────────────────────────────────┘
+```
+
+Data fetched from `GET /api/v1/dashboard/wealth-managers/:managerId` (new — see section 8.2.4).
+
+---
+
+### 8.2 Backend API specification
+
+#### 8.2.1 Enhanced: `GET /api/v1/dashboard/customer-portfolio`
+
+Required permission: `dashboard.customer_portfolio.read`
+
+Current implementation loads all records into memory and paginates in-process. This must remain compatible but add server-side search and filter query parameters.
+
+Query parameters:
+
+| Parameter | Type | Description |
+|---|---|---|
+| `page` | integer ≥ 1 | Page number, default 1 |
+| `pageSize` | integer 10–100 | Page size, default 25 |
+| `search` | string | Free-text match against `customer_name` or `customer_id` |
+| `customerType` | `new` \| `returning` \| `all` | Filter by customer classification |
+| `from` | ISO date | Filter by `mobilisation_date ≥ from` |
+| `to` | ISO date | Filter by `mobilisation_date ≤ to` |
+| `sortBy` | `totalInvestment` \| `investmentCount` \| `lastInvestmentDate` | Sort dimension, default `totalInvestment` |
+| `sortDir` | `asc` \| `desc` | Sort direction, default `desc` |
+
+Response envelope (unchanged structure, extended fields):
+
+```typescript
+type CustomerPortfolioResponse = {
+  items: CustomerPortfolioItem[];
+  page: number;
+  pageSize: number;
+  totalItems: number;
+  totalPages: number;
+};
+
+type CustomerPortfolioItem = {
+  customerId: string;
+  customerName: string;
+  customerType: 'new' | 'returning';
+  totalInvestment: number;          // DECIMAL sum
+  investmentCount: number;
+  inflowValue: number;
+  rolloverValue: number;
+  lastInvestmentAmount: number;
+  lastInvestmentDate: string;       // ISO date string
+  contributionPercentage: number;   // 0–100
+  tenorExposure: Record<string, number>; // tenorCategory → total value
+};
+```
+
+#### 8.2.2 Enhanced: `GET /api/v1/dashboard/customer-portfolio/:customerId`
+
+Required permission: `dashboard.customer_portfolio.read`
+
+Current implementation returns the raw `InvestmentRecordRow[]` array. Replace with a fully computed response that the detail page can render without client-side aggregation.
+
+Response schema:
+
+```typescript
+type CustomerDetailResponse = {
+  customerId: string;
+  customerName: string;
+  customerType: 'new' | 'returning';
+
+  // Aggregate summary
+  totalInvestment: number;
+  investmentCount: number;
+  inflowValue: number;
+  rolloverValue: number;
+  averageInvestmentPerRecord: number;
+  averageCostOfFunds: number | null;
+  contributionPercentage: number;   // share of all-customer AUM
+
+  // Time series for chart (monthly by mobilisation date)
+  mobilisationSeries: Array<{
+    period: string;          // "YYYY-MM"
+    totalInvestment: number;
+    investmentCount: number;
+  }>;
+
+  // Tenor breakdown for chart
+  tenorBreakdown: Array<{
+    tenorCategory: string;
+    label: string;
+    investmentValue: number;
+    investmentCount: number;
+  }>;
+
+  // Latest relationship manager and source channel (most frequent)
+  primaryRelationshipManager: string | null;
+  primarySourceChannel: string | null;
+
+  // First and most recent mobilisation dates
+  firstMobilisationDate: string;
+  lastMobilisationDate: string;
+
+  // Full investment history — sorted by mobilisation date desc
+  investments: Array<{
+    id: string;
+    investmentReference: string | null;
+    investmentAmount: number;
+    fundType: 'inflow' | 'rollover';
+    tenorDays: number;
+    tenorCategory: string;
+    maturityDate: string;
+    mobilisationDate: string;
+    relationshipManager: string | null;
+    sourceChannel: string | null;
+    recordStatus: string;
+    importStatus: string;
+    dataSource: string;
+    uploadBatchId: string | null;
+  }>;
+};
+```
+
+Service implementation notes:
+
+- Use `listConfirmedValid()` filtered to `customerId` to get this customer's records.
+- Compute `contributionPercentage` by dividing this customer's `totalInvestment` by the global AUM (requires a second query or a shared in-memory aggregate — use a cached global total that is computed once per request context rather than a full secondary scan).
+- `mobilisationSeries` groups records by `isoMonth(mobilisationDate)`.
+- `primaryRelationshipManager` is the manager name that appears most frequently across this customer's records.
+
+#### 8.2.3 New: `GET /api/v1/investments/:investmentId`
+
+Required permission: `dashboard.summary.read`
+
+This replaces the current `GET /api/v1/investments/:customerId` pattern for single-record lookup. The existing `/:customerId` route remains as a customer history endpoint; this new route resolves by UUID.
+
+The `InvestmentsController` must distinguish between the two by checking whether the param matches a UUID v7 pattern (the investment row primary key) vs. a plain customer ID string. Alternatively, add a separate prefix: `GET /api/v1/investments/record/:investmentId`.
+
+Recommended path: `GET /api/v1/investments/record/:investmentId` to avoid ambiguity.
+
+Response schema:
+
+```typescript
+type InvestmentDetailResponse = {
+  id: string;                        // UUID v7 — investment_records.id
+  investmentReference: string | null;
+  customerId: string;
+  customerName: string;
+  customerType: 'new' | 'returning';
+
+  // Financial facts
+  investmentAmount: number;
+  fundType: 'inflow' | 'rollover';
+  tenorDays: number;
+  tenorCategory: string;
+  maturityDate: string;
+  mobilisationDate: string;
+  costOfFunds: number | null;
+
+  // Provenance
+  relationshipManager: string | null;
+  sourceChannel: string | null;
+  dataSource: 'csv_upload' | 'manual_entry' | 'api_sync';
+  uploadBatchId: string | null;
+  uploadBatchRowId: string | null;
+  integrationSourceId: string | null;
+  sourceRecordHash: string | null;
+
+  // Status
+  recordStatus: 'valid' | 'invalid' | 'duplicate' | 'skipped';
+  importStatus: 'pending' | 'confirmed' | 'rejected';
+
+  // Lifecycle
+  createdAt: string;
+  updatedAt: string;
+
+  // Sibling records — other investments by the same customer (max 5, most recent first)
+  customerContext: Array<{
+    id: string;
+    investmentAmount: number;
+    fundType: 'inflow' | 'rollover';
+    mobilisationDate: string;
+    maturityDate: string;
+    recordStatus: string;
+    importStatus: string;
+  }>;
+};
+```
+
+Repository method to add on `InvestmentsRepository`:
+
+```typescript
+findById(id: string): Promise<InvestmentRecordRow | null>;
+findByCustomerIdLimit(customerId: string, limit: number): Promise<InvestmentRecordRow[]>;
+```
+
+#### 8.2.4 New: `GET /api/v1/dashboard/wealth-managers/:managerId`
+
+Required permission: `dashboard.wealth_manager.read`
+
+`managerId` is the URL-encoded relationship manager name (e.g. `"James%20Adeyemi"`). The analytics service filters `investment_records` by `relationship_manager = decodedManagerName`.
+
+Response schema:
+
+```typescript
+type ManagerDetailResponse = {
+  managerId: string;             // URL-encoded manager name — stable identifier for routing
+  managerName: string;
+
+  // Aggregate KPIs
+  totalAum: number;
+  investmentAccountCount: number;
+  customerCount: number;
+  ntbCustomerCount: number;
+  returningCustomerCount: number;
+  inflowValue: number;
+  rolloverValue: number;
+  averageCostOfFunds: number | null;
+
+  // Market share
+  aumShare: number;              // this manager's AUM ÷ total platform AUM (0–100)
+
+  // Time series — monthly mobilisation (for area chart)
+  mobilisationSeries: Array<{
+    period: string;              // "YYYY-MM"
+    totalInvestment: number;
+    investmentCount: number;
+    newCustomerInvestment: number;
+    returningCustomerInvestment: number;
+  }>;
+
+  // Customer mix breakdown (for donut chart)
+  customerMix: {
+    ntb: { count: number; investmentValue: number };
+    returning: { count: number; investmentValue: number };
+  };
+
+  // Fund aging buckets (for stacked bar chart)
+  fundsAging: {
+    days0To90:    { investmentCount: number; investmentValue: number };
+    days120To210: { investmentCount: number; investmentValue: number };
+    days240To330: { investmentCount: number; investmentValue: number };
+    days366Plus:  { investmentCount: number; investmentValue: number };
+    unclassified: { investmentCount: number; investmentValue: number };
+  };
+
+  // Top customers — sorted by total AUM descending, max 10
+  topCustomers: Array<{
+    customerId: string;
+    customerName: string;
+    customerType: 'new' | 'returning';
+    totalInvestment: number;
+    investmentCount: number;
+    contributionPercentage: number;   // share of this manager's total AUM
+    lastInvestmentDate: string;
+  }>;
+};
+```
+
+Service implementation notes:
+
+- Filter all confirmed valid records to `relationshipManager === decodedManagerName`.
+- Compute `aumShare` by dividing this manager's `totalAum` by the global platform AUM.
+- `mobilisationSeries` uses the same `buildBreakdownPoints` helper already implemented in `AnalyticsService`, scoped to this manager's records.
+- `topCustomers` uses the same customer aggregation loop as `customerPortfolio`, but scoped to records for this manager only.
+
+Add route to `AnalyticsController`:
+
+```typescript
+@RequirePermissions('dashboard.wealth_manager.read')
+@Get('wealth-managers/:managerId')
+async wealthManagerDetail(@Param('managerId') managerId: string): Promise<object> {
+  return this.analyticsService.wealthManagerDetail(decodeURIComponent(managerId));
+}
+```
+
+---
+
+### 8.3 Data fetch wiring (frontend)
+
+Each detail view follows the same `AsyncState` + `useEffect` pattern used throughout the app:
+
+```typescript
+// Customer detail
+const [customerDetail, setCustomerDetail] = useState<AsyncState<CustomerDetailResponse>>({
+  status: 'idle', data: null, error: null,
+});
+
+useEffect(() => {
+  if (activeRoute.view !== 'portfolio-detail') return;
+  setCustomerDetail({ status: 'loading', data: null, error: null });
+  apiFetch<CustomerDetailResponse>(`dashboard/customer-portfolio/${activeRoute.param}`)
+    .then((data) => setCustomerDetail({ status: 'ok', data, error: null }))
+    .catch((err: unknown) => setCustomerDetail({ status: 'error', data: null, error: String(err) }));
+}, [activeRoute.view, activeRoute.param]);
+
+// Investment detail
+const [investmentDetail, setInvestmentDetail] = useState<AsyncState<InvestmentDetailResponse>>({
+  status: 'idle', data: null, error: null,
+});
+
+useEffect(() => {
+  if (activeRoute.view !== 'investment-detail') return;
+  setInvestmentDetail({ status: 'loading', data: null, error: null });
+  apiFetch<InvestmentDetailResponse>(`investments/record/${activeRoute.param}`)
+    .then((data) => setInvestmentDetail({ status: 'ok', data, error: null }))
+    .catch((err: unknown) => setInvestmentDetail({ status: 'error', data: null, error: String(err) }));
+}, [activeRoute.view, activeRoute.param]);
+
+// Manager detail
+const [managerDetail, setManagerDetail] = useState<AsyncState<ManagerDetailResponse>>({
+  status: 'idle', data: null, error: null,
+});
+
+useEffect(() => {
+  if (activeRoute.view !== 'manager-detail') return;
+  setManagerDetail({ status: 'loading', data: null, error: null });
+  apiFetch<ManagerDetailResponse>(`dashboard/wealth-managers/${activeRoute.param}`)
+    .then((data) => setManagerDetail({ status: 'ok', data, error: null }))
+    .catch((err: unknown) => setManagerDetail({ status: 'error', data: null, error: String(err) }));
+}, [activeRoute.view, activeRoute.param]);
+```
+
+When the active route is a detail view, the sidebar highlight should still show the parent section (Portfolio, Investments, or Managers). Implement this by mapping detail views to their parent in `currentView` resolution:
+
+```typescript
+function getSidebarView(route: ActiveRoute): ViewId {
+  if (route.view === 'portfolio-detail')   return 'portfolio';
+  if (route.view === 'investment-detail')  return 'investments';
+  if (route.view === 'manager-detail')     return 'wealth-managers';
+  return route.view;
+}
+```
+
+---
+
+### 8.4 CSS additions required
+
+All existing CSS classes are reused. The additions below are the only new rules needed.
+
+```css
+/* Detail page back navigation strip */
+.detail-back-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.detail-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--soft);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  letter-spacing: 0.02em;
+}
+
+.detail-back-button:hover {
+  color: var(--text-strong);
+}
+
+/* Compact 5-column KPI grid for detail page headers */
+.detail-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+/* Compact variant of trends-chart-panel for KPI-only panels */
+.trends-chart-panel.panel-kpi-only {
+  padding: 16px 20px;
+}
+
+/* Drawer stat cards — used inside action drawers */
+.drawer-stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.drawer-stat-card {
+  background: var(--bg-strong);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.drawer-stat-card p {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 4px;
+}
+
+.drawer-stat-card strong {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-strong);
+}
+
+/* Tenor exposure inline bar inside drawer */
+.drawer-tenor-bar {
+  display: flex;
+  height: 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  gap: 2px;
+  margin-top: 8px;
+}
+
+.drawer-tenor-segment {
+  height: 100%;
+  border-radius: 2px;
+}
+```
+
+---
+
+### 8.5 Delivery sequence
+
+Implement in this order to avoid blocking other UI work:
+
+1. **Backend — customer detail enhancement.** Replace `customerPortfolioDetail` to return the computed `CustomerDetailResponse` schema. No migration required — uses existing tables and in-process aggregation.
+
+2. **Backend — investment record detail.** Add `GET /api/v1/investments/record/:investmentId` handler, repository `findById` method, and `customerContext` sibling lookup.
+
+3. **Backend — manager detail.** Add `GET /api/v1/dashboard/wealth-managers/:managerId` handler and `wealthManagerDetail` service method.
+
+4. **Backend — customer portfolio search params.** Add `search`, `customerType`, `sortBy`, `sortDir` query params to `customerPortfolio` service. These filter and sort the in-memory accumulator result before slicing.
+
+5. **Frontend — navigation types.** Extend `ActiveRoute` union type, add detail paths to `pathMap` and `viewPaths`, add `getSidebarView` helper.
+
+6. **Frontend — pagination state variables.** Add `portfolioPage`, `portfolioPageSize`, `investmentsPage`, `investmentsPageSize` to App state.
+
+7. **Frontend — `renderPortfolioDrawer()`.** Implement customer action drawer matching the drawer pattern of `renderUserDrawer()`. Wire "View full profile" CTA to navigate with list state.
+
+8. **Frontend — `renderInvestmentDrawer()`.** Implement investment record drawer. Wire "View investment detail" CTA.
+
+9. **Frontend — `renderManagerDrawer()`.** Implement manager action drawer. Wire "View manager profile" CTA.
+
+10. **Frontend — `renderCustomerDetailPage()`.** Chart-first inner page with area chart (mobilisation over time), horizontal bar (tenor exposure), and full investment history table.
+
+11. **Frontend — `renderInvestmentDetailPage()`.** Two-column `summary-kpi-list` layout for record fields and provenance, plus compact sibling table.
+
+12. **Frontend — `renderManagerDetailPage()`.** Six KPI panels, area chart (AUM over time), donut (customer mix), aging bar chart, top-customers table.
+
+13. **Frontend — back navigation.** Implement state restoration in all three back-navigation handlers.
+
+14. **CSS additions.** Add the rules from section 8.4 to `styles.css`.
+
+### 8.6 Acceptance criteria
+
+- Navigating from a customer list on page 3 to a customer detail and back restores page 3, the same search query, and the same scroll position without a network re-fetch.
+- Every list row in Customers, Investments, and Managers opens a side drawer on click — no row navigates directly on click.
+- The side drawer's primary CTA is the only entry point into the detail view.
+- Detail pages show loading and error states before data arrives.
+- The sidebar highlights the parent section (Portfolio, Investments, or Managers) while a detail sub-route is active.
+- All new API endpoints return the exact computed schemas specified in section 8.2; client-side aggregation on the detail pages is limited to chart series formatting only.
+- The `GET /api/v1/dashboard/customer-portfolio` endpoint accepts and correctly applies `search`, `customerType`, `sortBy`, and `sortDir` query parameters.
+- No test, seed, or placeholder data appears in any response; all values are derived from confirmed valid investment records only.

@@ -1,4 +1,5 @@
 export const CSV_PROCESSING_QUEUE = 'csv-processing';
+export const GOOGLE_SHEETS_SYNC_QUEUE = 'google-sheets-sync';
 export const IMPORT_QUEUE = 'import';
 export const REPORT_QUEUE = 'reports';
 export const SYNC_QUEUE = 'sync';
@@ -42,4 +43,14 @@ export interface NotificationJob {
 export interface DispatchOutboxEventJob {
   outboxEventId: string;
   correlationId: string;
+}
+
+export interface GoogleSheetsSyncJob {
+  integrationSourceId: string;
+  syncBatchId: string;
+  tabIds: string[];
+  actorId: string;
+  requestId: string;
+  correlationId: string;
+  triggerMode: 'scheduled' | 'manual' | 'webhook';
 }

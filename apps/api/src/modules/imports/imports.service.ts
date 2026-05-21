@@ -28,7 +28,14 @@ export class ImportsService {
   async confirmBatch(batchId: string, idempotencyKey: string, actor?: AuthenticatedActor): Promise<object> {
     const existingKey = await this.idempotencyKeyRepository.findByScopeAndKey('upload_confirm', idempotencyKey);
     if (existingKey?.responseBodyJson) {
-      return existingKey.responseBodyJson;
+      // Only honour the cached response if the batch was actually imported.
+      // If the batch is still 'validated' or 'importing' the previous import job crashed before
+      // completion — delete the stale key and re-enqueue.
+      const batch = await this.uploadBatchRepository.findById(batchId);
+      if (batch?.status !== 'validated' && batch?.status !== 'importing' && batch?.status !== 'partially_imported') {
+        return existingKey.responseBodyJson;
+      }
+      await this.idempotencyKeyRepository.deleteByScopeAndKey('upload_confirm', idempotencyKey);
     }
 
     const batch = await this.uploadBatchRepository.findById(batchId);

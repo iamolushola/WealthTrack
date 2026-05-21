@@ -8,4 +8,5 @@ export interface ImportInvestmentRepository {
 export interface IdempotencyKeyRepository {
   create(record: IdempotencyKeyRow): Promise<void>;
   findByScopeAndKey(scope: IdempotencyKeyRow['scope'], idempotencyKey: string): Promise<IdempotencyKeyRow | null>;
+  deleteByScopeAndKey(scope: IdempotencyKeyRow['scope'], idempotencyKey: string): Promise<void>;
 }

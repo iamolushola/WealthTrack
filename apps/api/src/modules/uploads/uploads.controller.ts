@@ -1,4 +1,5 @@
-import { Body, Controller, Delete, Get, Param, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, UploadedFile, UseGuards, UseInterceptors } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { CurrentActor } from '../../common/decorators/current-actor.decorator';
 import { RequirePermissions } from '../../common/decorators/permissions.decorator';
@@ -18,6 +19,19 @@ export class UploadsController {
     @CurrentActor() actor: AuthenticatedActor,
   ): Promise<object> {
     return this.uploadsService.createCsvUpload(payload, actor);
+  }
+
+  @RequirePermissions('uploads.csv.create')
+  @Post('ingest')
+  @UseInterceptors(FileInterceptor('file'))
+  async ingest(
+    @UploadedFile() file: { buffer: Buffer; originalname: string } | undefined,
+    @CurrentActor() actor: AuthenticatedActor,
+  ): Promise<object> {
+    if (!file) {
+      throw new BadRequestException('No CSV file provided');
+    }
+    return this.uploadsService.ingestCsv(file.buffer, file.originalname, actor);
   }
 
   @RequirePermissions('uploads.preview.read')
@@ -56,7 +70,7 @@ export class UploadsController {
     return this.uploadsService.history(actor);
   }
 
-  @RequirePermissions('users.create')
+  @RequirePermissions('uploads.csv.create')
   @Delete()
   bulkDelete(
     @CurrentActor() actor: AuthenticatedActor,

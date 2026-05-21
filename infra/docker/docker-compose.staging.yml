@@ -50,6 +50,9 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      CREDPAL_FILE_SERVICE_URL: ${CREDPAL_FILE_SERVICE_URL:-https://fileservice.credpal.com}
+      CREDPAL_FILE_SERVICE_API_KEY: ${CREDPAL_FILE_SERVICE_API_KEY}
+      USE_MOCK_FILE_STORAGE: ${USE_MOCK_FILE_STORAGE:-false}
     ports:
       - "3000:3000"
     networks:
@@ -73,6 +76,9 @@ services:
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
       REDIS_HOST: ${REDIS_HOST:-redis}
       REDIS_PORT: ${REDIS_PORT:-6379}
+      CREDPAL_FILE_SERVICE_URL: ${CREDPAL_FILE_SERVICE_URL:-https://fileservice.credpal.com}
+      CREDPAL_FILE_SERVICE_API_KEY: ${CREDPAL_FILE_SERVICE_API_KEY}
+      USE_MOCK_FILE_STORAGE: ${USE_MOCK_FILE_STORAGE:-false}
     networks:
       - wealthtrack_staging
 

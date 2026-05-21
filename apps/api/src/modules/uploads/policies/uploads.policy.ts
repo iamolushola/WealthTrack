@@ -20,4 +20,10 @@ export class UploadsPolicy {
       throw new ForbiddenException('Super Admin access required to manage all upload data');
     }
   }
+
+  assertCanCreateCsvUpload(actor: AuthenticatedActor | undefined): void {
+    if (!actor?.permissions.includes('uploads.csv.create')) {
+      throw new ForbiddenException('uploads.csv.create is required');
+    }
+  }
 }

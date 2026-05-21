@@ -6,6 +6,8 @@ import {
   CSV_PROCESSING_QUEUE,
   DispatchOutboxEventJob,
   GenerateReportJob,
+  GOOGLE_SHEETS_SYNC_QUEUE,
+  GoogleSheetsSyncJob,
   IMPORT_QUEUE,
   ManualSyncJob,
   OUTBOX_QUEUE,
@@ -27,6 +29,15 @@ export class JobDispatcherService implements OnModuleDestroy {
   private readonly reportQueue = new Queue<GenerateReportJob>(REPORT_QUEUE, { connection: this.connection });
   private readonly syncQueue = new Queue<ManualSyncJob>(SYNC_QUEUE, { connection: this.connection });
   private readonly outboxQueue = new Queue<DispatchOutboxEventJob>(OUTBOX_QUEUE, { connection: this.connection });
+  private readonly googleSheetsQueue = new Queue<GoogleSheetsSyncJob>(GOOGLE_SHEETS_SYNC_QUEUE, {
+    connection: this.connection,
+    defaultJobOptions: {
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 30_000 },
+      removeOnComplete: 500,
+      removeOnFail: 200,
+    },
+  });
 
   enqueueCsvProcessing(job: ProcessCsvUploadJob): Promise<void> {
     return this.csvQueue.add('process-csv-upload', job).then(() => undefined);
@@ -44,6 +55,10 @@ export class JobDispatcherService implements OnModuleDestroy {
     return this.syncQueue.add('manual-sync', job).then(() => undefined);
   }
 
+  enqueueGoogleSheetsSync(job: GoogleSheetsSyncJob): Promise<void> {
+    return this.googleSheetsQueue.add('google-sheets-sync', job).then(() => undefined);
+  }
+
   enqueueOutbox(job: DispatchOutboxEventJob): Promise<void> {
     return this.outboxQueue.add('dispatch-outbox-event', job).then(() => undefined);
   }
@@ -54,6 +69,7 @@ export class JobDispatcherService implements OnModuleDestroy {
       this.importQueue.close(),
       this.reportQueue.close(),
       this.syncQueue.close(),
+      this.googleSheetsQueue.close(),
       this.outboxQueue.close(),
     ]);
     await this.connection.quit();

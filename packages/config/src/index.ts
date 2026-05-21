@@ -10,3 +10,9 @@ export interface QueueConfig {
   host: string;
   port: number;
 }
+
+export interface FileStorageConfig {
+  url: string;
+  apiKey: string;
+  useMock: boolean;
+}

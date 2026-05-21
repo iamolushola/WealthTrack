@@ -30,4 +30,11 @@ export class MysqlIdempotencyKeyRepository implements IdempotencyKeyRepository {
       [scope, idempotencyKey],
     );
   }
+
+  async deleteByScopeAndKey(scope: IdempotencyKeyRow['scope'], idempotencyKey: string): Promise<void> {
+    await this.mysql.execute(
+      'DELETE FROM idempotency_keys WHERE scope = ? AND idempotency_key = ?',
+      [scope, idempotencyKey],
+    );
+  }
 }

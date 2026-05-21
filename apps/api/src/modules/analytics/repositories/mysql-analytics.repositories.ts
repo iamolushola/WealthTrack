@@ -19,6 +19,15 @@ export class MysqlAnalyticsInvestmentRepository implements AnalyticsInvestmentRe
       conditions.push('mobilisation_date <= ?');
       params.push(filter.to);
     }
+    if (filter?.customerType) {
+      conditions.push('customer_type = ?');
+      params.push(filter.customerType);
+    }
+    if (filter?.q) {
+      const like = `%${filter.q}%`;
+      conditions.push('(customer_name LIKE ? OR customer_id LIKE ? OR relationship_manager LIKE ?)');
+      params.push(like, like, like);
+    }
 
     return this.mysql.selectMany<InvestmentRecordRow>(
       `SELECT * FROM investment_records WHERE ${conditions.join(' AND ')}`,

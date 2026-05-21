@@ -49,6 +49,10 @@ export class MysqlUploadBatchRepository implements UploadBatchRepository {
   }
 
   async deleteAll(): Promise<number> {
+    // Delete in FK-safe order: errors → investment records → batch rows → batches
+    await this.mysql.execute('DELETE FROM upload_validation_errors');
+    await this.mysql.execute('DELETE FROM investment_records');
+    await this.mysql.execute('DELETE FROM upload_batch_rows');
     const result = await this.mysql.execute('DELETE FROM upload_batches');
     return result.affectedRows;
   }

@@ -2,11 +2,13 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { AuthenticatedActor } from '../../common/authenticated-actor';
 import { IntegrationsPolicy } from './policies/integrations.policy';
 import { MysqlIntegrationSourceRepository } from './repositories/mysql-integration-source.repository';
+import { MysqlGoogleSheetTabRepository } from './repositories/mysql-google-sheet-tab.repository';
 import { MysqlSyncBatchRepository } from '../sync/repositories/mysql-sync.repositories';
 import { CreateIntegrationRequestDto } from './dto/requests/create-integration.request.dto';
 import { UpdateIntegrationRequestDto } from './dto/requests/update-integration.request.dto';
+import { UpdateSheetTabRequestDto } from './dto/requests/update-sheet-tab.request.dto';
 import { createId, nowIso } from '../../common/utils/ids';
-import { IntegrationSourceRow, SyncBatchRow } from '@wealthtrack/shared-types';
+import { GoogleSheetTabRow, IntegrationSourceRow, SyncBatchRow } from '@wealthtrack/shared-types';
 import { JobDispatcherService } from '../../common/queues/job-dispatcher.service';
 import { OutboxService } from '../outbox/outbox.service';
 
@@ -15,6 +17,7 @@ export class IntegrationsService {
   constructor(
     private readonly integrationsPolicy: IntegrationsPolicy,
     private readonly integrationSourceRepository: MysqlIntegrationSourceRepository,
+    private readonly googleSheetTabRepository: MysqlGoogleSheetTabRepository,
     private readonly syncBatchRepository: MysqlSyncBatchRepository,
     private readonly jobDispatcherService: JobDispatcherService,
     private readonly outboxService: OutboxService,
@@ -131,18 +134,107 @@ export class IntegrationsService {
       updatedAt: nowIso(),
     };
     await this.syncBatchRepository.create(batch);
-    await this.jobDispatcherService.enqueueSync({
-      syncBatchId: batch.id,
-      integrationSourceId: source.id,
-      actorId: actor.actorId,
-      requestId: createId(),
-      correlationId: createId(),
-    });
+
+    if (source.sourceType === 'google_sheets') {
+      await this.jobDispatcherService.enqueueGoogleSheetsSync({
+        integrationSourceId: source.id,
+        syncBatchId: batch.id,
+        tabIds: [],
+        actorId: actor.actorId,
+        requestId: createId(),
+        correlationId: createId(),
+        triggerMode: 'manual',
+      });
+    } else {
+      await this.jobDispatcherService.enqueueSync({
+        syncBatchId: batch.id,
+        integrationSourceId: source.id,
+        actorId: actor.actorId,
+        requestId: createId(),
+        correlationId: createId(),
+      });
+    }
+
     await this.outboxService.queue('sync.started', 'sync_batch', batch.id, {
       syncBatchId: batch.id,
       integrationSourceId: source.id,
     });
     return batch;
+  }
+
+  async discoverSheetTabs(id: string, actor: AuthenticatedActor): Promise<object> {
+    this.integrationsPolicy.assertCanManage(actor, 'integrations.create');
+    const source = await this.integrationSourceRepository.findById(id);
+    if (!source || source.sourceType !== 'google_sheets') {
+      throw new NotFoundException('Google Sheets integration not found');
+    }
+
+    const config = source.connectionConfig as { spreadsheetId?: string };
+    if (!config?.spreadsheetId) {
+      throw new Error('Integration is missing spreadsheetId in connectionConfig');
+    }
+
+    // Dynamically import googleapis to avoid bundling issues
+    const { google } = await import('googleapis');
+    const credentials = JSON.parse(source.secretRef) as Record<string, unknown>;
+    const auth = credentials['type'] === 'service_account'
+      ? google.auth.fromJSON(credentials as Parameters<typeof google.auth.fromJSON>[0])
+      : (() => {
+          const o = new google.auth.OAuth2(String(credentials['client_id']), String(credentials['client_secret']));
+          o.setCredentials({ refresh_token: String(credentials['refresh_token']) });
+          return o;
+        })();
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sheets = google.sheets({ version: 'v4', auth: auth as any });
+    const spreadsheet = await sheets.spreadsheets.get({
+      spreadsheetId: config.spreadsheetId,
+      fields: 'sheets.properties',
+    });
+
+    const discovered = (spreadsheet.data.sheets ?? []).map((s) => ({
+      sheetId: String(s.properties?.sheetId ?? ''),
+      title: s.properties?.title ?? 'Unnamed',
+    }));
+
+    const now = nowIso();
+    for (const tab of discovered) {
+      const tabRow: GoogleSheetTabRow = {
+        id: createId(),
+        integrationSourceId: id,
+        sheetId: tab.sheetId,
+        sheetTitle: tab.title,
+        rangeNotation: 'A1:ZZ',
+        columnMapping: {},
+        status: 'active',
+        lastSyncedAt: null,
+        lastRowCount: null,
+        createdAt: now,
+        updatedAt: now,
+      };
+      await this.googleSheetTabRepository.upsert(tabRow);
+    }
+
+    const tabs = await this.googleSheetTabRepository.listByIntegrationSourceId(id);
+    return { spreadsheetId: config.spreadsheetId, tabs, count: tabs.length };
+  }
+
+  async listSheetTabs(id: string, actor: AuthenticatedActor): Promise<object> {
+    this.integrationsPolicy.assertCanManage(actor, 'integrations.read');
+    const source = await this.integrationSourceRepository.findById(id);
+    if (!source) throw new NotFoundException('Integration source not found');
+    const tabs = await this.googleSheetTabRepository.listByIntegrationSourceId(id);
+    return { integrationSourceId: id, tabs, count: tabs.length };
+  }
+
+  async updateSheetTab(id: string, tabId: string, payload: UpdateSheetTabRequestDto, actor: AuthenticatedActor): Promise<object> {
+    this.integrationsPolicy.assertCanManage(actor, 'integrations.update');
+    const tab = await this.googleSheetTabRepository.findById(tabId);
+    if (!tab || tab.integrationSourceId !== id) {
+      throw new NotFoundException('Sheet tab not found');
+    }
+    await this.googleSheetTabRepository.updateTab(tabId, payload, nowIso());
+    return (await this.googleSheetTabRepository.findById(tabId)) ?? {};
   }
 
   async syncLogs(id: string, actor: AuthenticatedActor): Promise<object> {
