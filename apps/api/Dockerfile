@@ -13,7 +13,7 @@ RUN npm ci
 
 COPY . .
 
-RUN npm run api:build
+RUN npm run build --workspace=packages/shared-types && npm run api:build
 
 FROM node:22-bookworm-slim AS runtime
 
