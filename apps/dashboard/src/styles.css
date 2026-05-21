@@ -2310,9 +2310,54 @@ select:focus-visible {
   height: 9px;
 }
 
+.aging-bar-root {
+  width: 100%;
+}
+
+.aging-bar-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 22px;
+  margin-top: 6px;
+  font-size: 0.72rem;
+}
+
+.aging-bar-tooltip-empty {
+  pointer-events: none;
+}
+
+.aging-bar-tooltip-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.aging-bar-tooltip-dot-days0To90    { background: var(--good); }
+.aging-bar-tooltip-dot-days120To210 { background: var(--info); }
+.aging-bar-tooltip-dot-days240To330 { background: var(--warn); }
+.aging-bar-tooltip-dot-days366Plus  { background: var(--brand); }
+
+.aging-bar-tooltip-label {
+  color: var(--soft);
+  font-weight: 700;
+}
+
+.aging-bar-tooltip-value {
+  color: var(--text-strong);
+  font-weight: 800;
+}
+
+.aging-bar-tooltip-count {
+  color: var(--soft);
+  margin-left: auto;
+}
+
 .wealth-aging-segment {
   min-width: 0;
   height: 100%;
+  cursor: pointer;
 }
 
 .wealth-aging-segment-days0To90 {

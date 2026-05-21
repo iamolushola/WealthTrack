@@ -978,6 +978,38 @@ function getFundsAgingDisplayItems(buckets: FundsAgingBuckets | undefined): Arra
   ];
 }
 
+function AgingBar({ items, total, compact = false }: { items: ReturnType<typeof getFundsAgingDisplayItems>; total: number; compact?: boolean }) {
+  const [hoveredKey, setHoveredKey] = useState<string | null>(null);
+  const hovered = items.find((i) => i.key === hoveredKey);
+
+  return (
+    <div className="aging-bar-root">
+      <div className={compact ? 'wealth-aging-stack compact' : 'wealth-aging-stack'} aria-label="Funds aging distribution">
+        {items.map((item) => (
+          <span
+            key={item.key}
+            className={`wealth-aging-segment wealth-aging-segment-${item.key}`}
+            style={{ width: `${total ? Math.max((item.value / total) * 100, item.value > 0 ? 4 : 0) : 0}%` }}
+            onMouseEnter={() => setHoveredKey(item.key)}
+            onMouseLeave={() => setHoveredKey(null)}
+            aria-label={`${item.label}: ${formatCurrency(item.value)}`}
+          />
+        ))}
+      </div>
+      {hovered && hovered.value > 0 ? (
+        <div className="aging-bar-tooltip">
+          <span className={`aging-bar-tooltip-dot aging-bar-tooltip-dot-${hovered.key}`} />
+          <span className="aging-bar-tooltip-label">{hovered.label}</span>
+          <strong className="aging-bar-tooltip-value">{formatCurrency(hovered.value)}</strong>
+          <span className="aging-bar-tooltip-count">{formatCount(hovered.count)} investments</span>
+        </div>
+      ) : (
+        <div className="aging-bar-tooltip aging-bar-tooltip-empty" />
+      )}
+    </div>
+  );
+}
+
 function getDominantFundsAgingBucket(buckets: FundsAgingBuckets): { label: string; value: number } {
   return getFundsAgingDisplayItems(buckets).reduce(
     (highest, item) => (item.value > highest.value ? { label: item.label, value: item.value } : highest),
@@ -2721,15 +2753,7 @@ function App() {
     return (
       <section className="wealth-manager-module panel" aria-label="WEALTH managers">
         <div className="wealth-aging-panel">
-          <div className="wealth-aging-stack" aria-label="Funds aging distribution">
-            {summaryAgingItems.map((item) => (
-              <span
-                key={item.key}
-                className={`wealth-aging-segment wealth-aging-segment-${item.key}`}
-                style={{ width: `${summaryAgingTotal ? Math.max((item.value / summaryAgingTotal) * 100, item.value > 0 ? 4 : 0) : 0}%` }}
-              />
-            ))}
-          </div>
+          <AgingBar items={summaryAgingItems} total={summaryAgingTotal} />
         </div>
 
         <div className="customer-control-panel">
