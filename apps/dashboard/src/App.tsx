@@ -1,5 +1,7 @@
 import { type ReactNode, useEffect, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { createApiClient, ApiError } from './api-client';
+import { toast } from './toast';
 import {
   Area,
   AreaChart,
@@ -554,6 +556,9 @@ const dashboardRequestHeaders = {
     'integrations.logs.read',
   ].join(','),
 };
+
+// Module-level API client — bound once to the base URL and auth headers.
+const api = createApiClient(API_BASE_URL, dashboardRequestHeaders);
 
 const reportTypeLabels: Record<ReportExportType, string> = {
   summary: 'Summary',
@@ -1120,25 +1125,7 @@ type RoleWithPermissions = RoleItem & { permissionCodes: string[] };
 type RolePermissionsMatrix = { roles: RoleWithPermissions[]; permissions: PermissionItem[] };
 
 async function apiMutate<T>(method: string, path: string, body?: unknown): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}/${path}`, {
-    method,
-    headers: {
-      ...dashboardRequestHeaders,
-      'Content-Type': 'application/json',
-    },
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const err = await response.json() as { message?: string };
-      if (err.message) message = Array.isArray(err.message) ? err.message.join(', ') : err.message;
-    } catch { /* ignore parse errors */ }
-    throw new Error(message);
-  }
-
-  return response.json() as Promise<T>;
+  return api.mutate<T>(method, path, body);
 }
 
 function App() {
@@ -1331,15 +1318,7 @@ function App() {
   const [expandedIntegration, setExpandedIntegration] = useState<string | null>(null);
 
   async function fetchViewData<T>(path: string): Promise<T> {
-    const response = await fetch(`${API_BASE_URL}/${path}`, {
-      headers: dashboardRequestHeaders,
-    });
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}`);
-    }
-
-    return response.json() as Promise<T>;
+    return api.get<T>(path);
   }
 
   useEffect(() => {
@@ -1456,15 +1435,7 @@ function App() {
       }));
 
       try {
-        const response = await fetch(`${API_BASE_URL}/reports`, {
-          headers: dashboardRequestHeaders,
-        });
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
-        }
-
-        const payload = (await response.json()) as { items?: ReportExportItem[] };
+        const payload = await api.get<{ items?: ReportExportItem[] }>('reports');
 
         if (cancelled) {
           return;
@@ -5029,8 +5000,12 @@ function App() {
     }
 
     async function handleClearAllData() {
-      await apiMutate('DELETE', 'uploads');
-      resetAllOverviews();
+      try {
+        await apiMutate('DELETE', 'uploads');
+        resetAllOverviews();
+      } catch (err: unknown) {
+        toast.error(err instanceof Error ? err.message : 'Failed to clear data. Please try again.');
+      }
     }
 
     async function handleUploadFile() {
@@ -5046,8 +5021,16 @@ function App() {
         body: formData,
       });
       if (!response.ok) {
-        const err = await response.json().catch(() => ({})) as { message?: string };
-        throw new Error(err.message ?? `HTTP ${response.status}`);
+        // Use the same error-envelope parser so the message matches other API errors.
+        const requestId = response.headers.get('x-request-id') ?? undefined;
+        try {
+          const body = await response.json() as { message?: string | string[] };
+          const msg = Array.isArray(body.message) ? body.message.join(' · ') : (body.message ?? `HTTP ${response.status}`);
+          throw new ApiError(response.status, msg, requestId);
+        } catch (inner) {
+          if (inner instanceof ApiError) throw inner;
+          throw new ApiError(response.status, `HTTP ${response.status}`, requestId);
+        }
       }
       // Step 3 — reset all views so they re-fetch on next navigation
       const name = uploadedFile.name;

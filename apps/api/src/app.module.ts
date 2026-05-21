@@ -1,5 +1,6 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { HttpLoggerMiddleware } from './common/http-logger.middleware';
+import { RequestIdMiddleware } from './common/request-id.middleware';
 import { JobDispatcherModule } from './common/queues/job-dispatcher.module';
 import { MysqlModule } from './persistence/mysql/mysql.module';
 import { HealthModule } from './modules/health/health.module';
@@ -49,6 +50,7 @@ import { JobsModule } from './modules/jobs/jobs.module';
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(HttpLoggerMiddleware).forRoutes('*');
+    // RequestIdMiddleware MUST come first so the logger can read req.requestId.
+    consumer.apply(RequestIdMiddleware, HttpLoggerMiddleware).forRoutes('*');
   }
 }
