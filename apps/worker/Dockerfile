@@ -25,6 +25,7 @@ ARG APP_VERSION=dev
 ENV APP_VERSION=$APP_VERSION
 
 COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/worker/dist ./dist
 
 CMD ["node", "dist/main.js"]
