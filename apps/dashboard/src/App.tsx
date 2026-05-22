@@ -2697,6 +2697,13 @@ function App() {
     }
   }
 
+  // Auto-dismiss the notice banner after 5 seconds
+  useEffect(() => {
+    if (!notice) return undefined;
+    const t = setTimeout(() => setNotice(null), 5000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   // Idle session timeout — resets on any user interaction.
   useEffect(() => {
     function resetTimers(): void {
@@ -4635,9 +4642,12 @@ function App() {
                     </thead>
                     <tbody>
                       {userItems.map((item) => {
-                        const isPending = item.status === 'inactive' && !item.lastLoginAt;
+                        // Anyone who hasn't logged in yet is "Pending", regardless of their stored status.
+                        // This covers both: users created before the inactive-on-invite fix (still have
+                        // status='active' in the DB) and newly invited users (status='inactive').
+                        const isPending = !item.lastLoginAt;
                         const displayStatus = isPending ? 'Pending' : item.status;
-                        const tone = item.status === 'active' ? 'good' : item.status === 'suspended' ? 'warn' : 'neutral';
+                        const tone = item.status === 'active' && !isPending ? 'good' : item.status === 'suspended' ? 'warn' : 'neutral';
                         return (
                           <tr key={item.id}>
                             <td>
@@ -6523,7 +6533,17 @@ function App() {
             </div>
           </header>
 
-          {notice ? <div className={`feedback-banner feedback-${notice.tone}`}>{notice.message}</div> : null}
+          {notice ? (
+            <div className={`feedback-banner feedback-${notice.tone}`} role="status">
+              <span>{notice.message}</span>
+              <button
+                type="button"
+                className="feedback-banner-close"
+                onClick={() => setNotice(null)}
+                aria-label="Dismiss"
+              >×</button>
+            </div>
+          ) : null}
           {currentView !== 'reports' && currentLoadState.status === 'error' ? <div className="feedback-banner feedback-warn">Live data is unavailable for this tab: {currentLoadState.error}</div> : null}
 
           {detailRoute !== null ? (

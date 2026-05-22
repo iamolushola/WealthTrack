@@ -1054,11 +1054,31 @@ select:focus-visible {
 }
 
 .feedback-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
   margin-top: 18px;
   padding: 16px 18px;
   border-radius: 18px;
   font-weight: 700;
   animation: fade-up 220ms ease;
+}
+
+.feedback-banner-close {
+  flex-shrink: 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  line-height: 1;
+  color: inherit;
+  opacity: 0.6;
+  padding: 0 2px;
+}
+
+.feedback-banner-close:hover {
+  opacity: 1;
 }
 
 .feedback-good {
@@ -1772,7 +1792,7 @@ select:focus-visible {
 
 .data-table {
   width: 100%;
-  min-width: 920px;
+  min-width: 1080px;
   border-collapse: separate;
   border-spacing: 0;
 }
@@ -1783,6 +1803,11 @@ select:focus-visible {
   border-bottom: 1px solid var(--subtle-line);
   vertical-align: top;
   text-align: left;
+}
+
+/* Keep action buttons on a single line so they don't wrap or disappear */
+.data-table td:last-child {
+  white-space: nowrap;
 }
 
 .data-table th {
