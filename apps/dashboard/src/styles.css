@@ -5010,35 +5010,147 @@ select:focus-visible {
   flex-shrink: 0;
 }
 
-/* ── Permission matrix ───────────────────────────────────────────────── */
+/* ── Permission editor ───────────────────────────────────────────────── */
 
-.perm-matrix {
-  /* fixed layout ensures every th/td in the same column share the same width */
-  table-layout: fixed;
+/* Outer container: role list rail on the left, checklist on the right */
+.perm-editor {
+  display: flex;
+  min-height: 520px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+/* ── Left rail: role list ────────────────────────────────────────────── */
+
+.perm-role-list {
+  width: 210px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+  background: var(--surface-strong, #f5f6f7);
+  padding: 6px 0;
+}
+
+.perm-role-item {
   width: 100%;
-  min-width: 800px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  background: none;
+  border: none;
+  text-align: left;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--text);
+  transition: background 0.12s;
+  position: relative;
 }
 
-.perm-col-label {
-  width: 280px;
-  padding-right: 16px;
-  vertical-align: middle;
+.perm-role-item:hover {
+  background: rgba(0, 0, 0, 0.04);
 }
 
-/* th and td for each role column share the same class pair to stay aligned */
-.perm-col-role,
-.perm-col-check {
-  width: 140px;
-  text-align: center;
-  vertical-align: middle;
+.perm-role-item.is-selected {
+  background: color-mix(in srgb, var(--brand) 10%, transparent);
+  color: var(--brand);
+  font-weight: 600;
 }
 
-.perm-group-row {
-  background: var(--surface-strong);
+.perm-role-item-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+.perm-role-badge {
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  background: var(--border);
+  padding: 2px 5px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* Delete button — hidden until the row is hovered */
+.perm-delete-role {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--muted);
+  padding: 2px 4px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+}
+
+.perm-role-item:hover .perm-delete-role {
+  opacity: 0.5;
+}
+
+.perm-role-item:hover .perm-delete-role:hover {
+  opacity: 1;
+  color: var(--danger, #e53e3e);
+}
+
+/* ── Right panel: permission checklist ───────────────────────────────── */
+
+.perm-perm-list {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.perm-perm-list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 24px 12px;
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  background: var(--surface);
+  z-index: 1;
+}
+
+.perm-selected-role-name {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text);
+  margin: 0 0 2px;
+}
+
+.perm-perm-count {
+  font-size: 0.8rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.perm-sections {
+  padding: 0 0 24px;
+}
+
+.perm-section {
+  padding: 0 24px;
+}
+
+/* Group header inside checklist panel */
 .perm-group-label {
-  padding: 10px 16px !important;
+  padding: 16px 0 8px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 2px;
 }
 
 .perm-group-title {
@@ -5061,37 +5173,56 @@ select:focus-visible {
   margin-top: 2px;
 }
 
-/* Description is shown first — plain English for non-technical readers */
+/* Individual permission row */
+.perm-check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 9px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.perm-check-row:hover:not(.is-readonly) {
+  background: rgba(0, 0, 0, 0.03);
+}
+
+.perm-check-row.is-readonly {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.perm-check-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  margin-top: 3px;
+  cursor: pointer;
+  accent-color: var(--brand);
+}
+
+.perm-check-row.is-readonly input[type="checkbox"] {
+  cursor: default;
+}
+
+/* Description text */
 .perm-desc {
   display: block;
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--text);
   white-space: normal;
+  line-height: 1.4;
 }
 
-.perm-role-header {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: normal;
-  word-break: break-word;
-  text-align: center;
-  line-height: 1.3;
-}
-
+/* Save state indicators */
 .perm-save-indicator {
   display: block;
   font-size: 0.65rem;
-  font-weight: 600;
+  font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.08em;
-  margin-top: 4px;
-  text-align: center;
 }
 
 .perm-saving {
@@ -5107,34 +5238,6 @@ select:focus-visible {
 @keyframes pulse {
   from { opacity: 0.4; }
   to   { opacity: 1; }
-}
-
-.perm-delete-role {
-  background: none;
-  border: none;
-  cursor: pointer;
-  color: var(--muted);
-  padding: 2px;
-  border-radius: 4px;
-  display: flex;
-  align-items: center;
-  flex-shrink: 0;
-  opacity: 0.5;
-  transition: opacity 0.15s, color 0.15s;
-}
-
-.perm-delete-role:hover {
-  opacity: 1;
-  color: var(--danger, #e53e3e);
-}
-
-.perm-matrix input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  cursor: pointer;
-  accent-color: var(--brand);
-  display: block;
-  margin: 0 auto;
 }
 
 /* ── Detail pages ──────────────────────────────────────────────────────── */

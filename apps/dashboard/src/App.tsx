@@ -1254,6 +1254,7 @@ function App() {
   const [showCreateRoleDrawer, setShowCreateRoleDrawer] = useState(false);
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
   const [savedRoleId, setSavedRoleId] = useState<string | null>(null);
+  const [selectedMatrixRoleId, setSelectedMatrixRoleId] = useState<string | null>(null);
   const [reportsOverview, setReportsOverview] = useState<ReportsOverviewState>({
     status: 'idle',
     items: [],
@@ -4517,6 +4518,7 @@ function App() {
   function renderUsersPage(): ReactNode {
     const matrixRoles = roleMatrix.data?.roles ?? [];
     const matrixPermissions = roleMatrix.data?.permissions ?? [];
+    const selectedRole = matrixRoles.find((r) => r.id === selectedMatrixRoleId) ?? matrixRoles[0] ?? null;
 
     // Group permissions by category prefix and map to human-readable section names.
     // Each entry includes the display title and a plain-English note about which
@@ -4793,12 +4795,12 @@ function App() {
           ) : (
             <>
 
-              {/* Permission matrix */}
+              {/* Role permission editor */}
               <section className="panel">
                 <div className="panel-header">
                   <div>
                     <h3>Role Permissions</h3>
-                    <p className="eyebrow">{formatCount(matrixRoles.length)} roles • {formatCount(matrixPermissions.length)} permissions</p>
+                    <p className="eyebrow">{formatCount(matrixRoles.length)} roles · {formatCount(matrixPermissions.length)} permissions</p>
                   </div>
                   {hasPerm('roles.manage') && (
                     <button className="primary-button" type="button" onClick={() => setShowCreateRoleDrawer(true)}>
@@ -4811,12 +4813,12 @@ function App() {
                   <div className="empty-state">
                     <div className="empty-state-icon"><Icon name="refresh" /></div>
                     <h4>Loading permissions</h4>
-                    <p>Fetching role permissions matrix.</p>
+                    <p>Fetching role permissions.</p>
                   </div>
                 ) : roleMatrix.status === 'error' ? (
                   <div className="empty-state">
                     <div className="empty-state-icon"><Icon name="alert" /></div>
-                    <h4>Failed to load matrix</h4>
+                    <h4>Failed to load</h4>
                     <p>{roleMatrix.error}</p>
                   </div>
                 ) : matrixRoles.length === 0 ? (
@@ -4825,66 +4827,91 @@ function App() {
                     <h4>No roles found</h4>
                   </div>
                 ) : (
-                  <div className="table-scroll">
-                    <table className="data-table perm-matrix">
-                      <thead>
-                        <tr>
-                          <th scope="col" className="perm-col-label">Permission</th>
-                          {matrixRoles.map((role) => (
-                            <th key={role.id} scope="col" className="perm-col-role">
-                              <div className="perm-role-header">
-                                <span>{role.name}</span>
-                                {!role.isSystem && hasPerm('roles.manage') && (
-                                  <button className="perm-delete-role" type="button" onClick={() => handleDeleteRole(role.id, role.name)} aria-label={`Delete ${role.name} role`} title="Delete role">
-                                    <Icon name="x" />
-                                  </button>
-                                )}
-                              </div>
-                              {savingRoleId === role.id ? (
+                  <div className="perm-editor">
+
+                    {/* Left rail — role list */}
+                    <nav className="perm-role-list" aria-label="Roles">
+                      {matrixRoles.map((role) => (
+                        <div
+                          key={role.id}
+                          role="button"
+                          tabIndex={0}
+                          className={`perm-role-item${selectedRole?.id === role.id ? ' is-selected' : ''}`}
+                          onClick={() => setSelectedMatrixRoleId(role.id)}
+                          onKeyDown={(e) => e.key === 'Enter' && setSelectedMatrixRoleId(role.id)}
+                        >
+                          <span className="perm-role-item-name">{role.name}</span>
+                          {role.isSystem && <span className="perm-role-badge">System</span>}
+                          {!role.isSystem && hasPerm('roles.manage') && (
+                            <button
+                              className="perm-delete-role"
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); handleDeleteRole(role.id, role.name); }}
+                              aria-label={`Delete ${role.name} role`}
+                              title="Delete role"
+                            >
+                              <Icon name="x" />
+                            </button>
+                          )}
+                        </div>
+                      ))}
+                    </nav>
+
+                    {/* Right panel — permission checklist for selected role */}
+                    <div className="perm-perm-list">
+                      {selectedRole ? (
+                        <>
+                          <div className="perm-perm-list-header">
+                            <div>
+                              <h4 className="perm-selected-role-name">{selectedRole.name}</h4>
+                              {savingRoleId === selectedRole.id ? (
                                 <span className="perm-save-indicator perm-saving">Saving…</span>
-                              ) : savedRoleId === role.id ? (
+                              ) : savedRoleId === selectedRole.id ? (
                                 <span className="perm-save-indicator perm-saved">Saved</span>
                               ) : null}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {sortedGroupEntries.map(([group, perms]) => (
-                          <>
-                            <tr key={`group-${group}`} className="perm-group-row">
-                              <td colSpan={matrixRoles.length + 1} className="perm-group-label">
-                                <span className="perm-group-title">{GROUP_META[group]?.title ?? group}</span>
-                                {GROUP_META[group]?.context && (
-                                  <span className="perm-group-context">{GROUP_META[group].context}</span>
-                                )}
-                              </td>
-                            </tr>
-                            {perms.map((perm) => (
-                              <tr key={perm.id}>
-                                <td className="perm-col-label">
-                                  <span className="perm-desc">{perm.description ?? perm.code}</span>
-                                </td>
-                                {matrixRoles.map((role) => {
-                                  const checked = role.permissionCodes.includes(perm.code);
+                            </div>
+                            <span className="perm-perm-count">
+                              {selectedRole.permissionCodes.length} permission{selectedRole.permissionCodes.length !== 1 ? 's' : ''} granted
+                            </span>
+                          </div>
+
+                          <div className="perm-sections">
+                            {sortedGroupEntries.map(([group, perms]) => (
+                              <div key={group} className="perm-section">
+                                <div className="perm-group-label">
+                                  <span className="perm-group-title">{GROUP_META[group]?.title ?? group}</span>
+                                  {GROUP_META[group]?.context && (
+                                    <span className="perm-group-context">{GROUP_META[group].context}</span>
+                                  )}
+                                </div>
+                                {perms.map((perm) => {
+                                  const checked = selectedRole.permissionCodes.includes(perm.code);
+                                  const disabled = savingRoleId === selectedRole.id || !hasPerm('roles.manage');
                                   return (
-                                    <td key={role.id} className="perm-col-check">
+                                    <label key={perm.id} className={`perm-check-row${disabled ? ' is-readonly' : ''}`}>
                                       <input
                                         type="checkbox"
                                         checked={checked}
-                                        disabled={savingRoleId === role.id || !hasPerm('roles.manage')}
-                                        onChange={() => hasPerm('roles.manage') && handleTogglePermission(role.id, perm.code, role.permissionCodes)}
-                                        aria-label={`${role.name}: ${perm.description ?? perm.code}`}
+                                        disabled={disabled}
+                                        onChange={() => !disabled && handleTogglePermission(selectedRole.id, perm.code, selectedRole.permissionCodes)}
                                       />
-                                    </td>
+                                      <span className="perm-desc">{perm.description ?? perm.code}</span>
+                                    </label>
                                   );
                                 })}
-                              </tr>
+                              </div>
                             ))}
-                          </>
-                        ))}
-                      </tbody>
-                    </table>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="empty-state">
+                          <div className="empty-state-icon"><Icon name="shield" /></div>
+                          <h4>Select a role</h4>
+                          <p>Choose a role from the list to view and edit its permissions.</p>
+                        </div>
+                      )}
+                    </div>
+
                   </div>
                 )}
               </section>
