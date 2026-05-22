@@ -1250,7 +1250,7 @@ function App() {
   const [userDrawer, setUserDrawer] = useState<{ mode: 'invite' | 'edit' | null; userId?: string }>({ mode: null });
   const [inviteForm, setInviteForm] = useState({ name: '', email: '', roleCode: 'analyst' });
   const [editForm, setEditForm] = useState({ name: '', email: '', roleCode: '', status: '' });
-  const [newRoleForm, setNewRoleForm] = useState({ name: '', code: '', description: '' });
+  const [newRoleForm, setNewRoleForm] = useState({ name: '', code: '', description: '', codeEdited: false });
   const [showCreateRoleDrawer, setShowCreateRoleDrawer] = useState(false);
   const [savingRoleId, setSavingRoleId] = useState<string | null>(null);
   const [savedRoleId, setSavedRoleId] = useState<string | null>(null);
@@ -4609,7 +4609,7 @@ function App() {
       try {
         await apiMutate('POST', 'roles', { name: newRoleForm.name.trim(), code: newRoleForm.code.trim(), description: newRoleForm.description.trim() || undefined });
         setNotice({ message: `Role "${newRoleForm.name}" created`, tone: 'info' });
-        setNewRoleForm({ name: '', code: '', description: '' });
+        setNewRoleForm({ name: '', code: '', description: '', codeEdited: false });
         setShowCreateRoleDrawer(false);
         setRoleMatrix({ status: 'idle', data: null, error: null });
       } catch (err: unknown) {
@@ -4637,11 +4637,11 @@ function App() {
 
         {showCreateRoleDrawer ? (
           <>
-            <div className="drawer-scrim" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '' }); }} aria-hidden="true" />
+            <div className="drawer-scrim" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '', codeEdited: false }); }} aria-hidden="true" />
             <aside className="drawer" role="dialog" aria-modal="true" aria-label="Create custom role">
               <div className="drawer-header">
                 <h3>Create Custom Role</h3>
-                <button className="icon-button" type="button" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '' }); }} aria-label="Close">
+                <button className="icon-button" type="button" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '', codeEdited: false }); }} aria-label="Close">
                   <Icon name="x" />
                 </button>
               </div>
@@ -4649,12 +4649,27 @@ function App() {
                 <div className="form-grid">
                   <label className="field-card field-card-wide">
                     <span className="field-label">Role Name</span>
-                    <input type="text" value={newRoleForm.name} onChange={(e) => setNewRoleForm((p) => ({ ...p, name: e.target.value }))} placeholder="e.g. Compliance Officer" autoFocus />
+                    <input
+                      type="text"
+                      value={newRoleForm.name}
+                      onChange={(e) => {
+                        const name = e.target.value;
+                        const generated = name.toLowerCase().replace(/[^a-z0-9\s]/g, '').replace(/\s+/g, '_').replace(/_+/g, '_').replace(/^_|_$/g, '');
+                        setNewRoleForm((p) => ({ ...p, name, code: p.codeEdited ? p.code : generated }));
+                      }}
+                      placeholder="e.g. Compliance Officer"
+                      autoFocus
+                    />
                   </label>
                   <label className="field-card field-card-wide">
                     <span className="field-label">Code (lowercase, underscores)</span>
                     <span className="field-help">Used internally — cannot be changed after creation</span>
-                    <input type="text" value={newRoleForm.code} onChange={(e) => setNewRoleForm((p) => ({ ...p, code: e.target.value.toLowerCase().replace(/[^a-z_]/g, '') }))} placeholder="e.g. compliance_officer" />
+                    <input
+                      type="text"
+                      value={newRoleForm.code}
+                      onChange={(e) => setNewRoleForm((p) => ({ ...p, code: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''), codeEdited: true }))}
+                      placeholder="e.g. compliance_officer"
+                    />
                   </label>
                   <label className="field-card field-card-wide">
                     <span className="field-label">Description <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(optional)</span></span>
@@ -4663,7 +4678,7 @@ function App() {
                 </div>
               </div>
               <div className="drawer-footer">
-                <button className="secondary-button" type="button" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '' }); }}>Cancel</button>
+                <button className="secondary-button" type="button" onClick={() => { setShowCreateRoleDrawer(false); setNewRoleForm({ name: '', code: '', description: '', codeEdited: false }); }}>Cancel</button>
                 <button className="primary-button" type="button" onClick={handleCreateRole}>Create role</button>
               </div>
             </aside>
