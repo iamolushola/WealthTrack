@@ -27,6 +27,7 @@ ENV APP_VERSION=$APP_VERSION
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/packages ./packages
 COPY --from=build /app/apps/api/dist ./dist
+COPY --from=build /app/infra/mysql/migrations ./infra/mysql/migrations
 
 EXPOSE 3000
 
