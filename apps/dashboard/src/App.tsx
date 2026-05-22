@@ -4661,21 +4661,43 @@ function App() {
                             <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
                             <td>
                               {canManageTeam ? (
-                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
+                                <div style={{ display: 'flex', flexDirection: 'row', gap: '6px', alignItems: 'center' }}>
+                                  {!item.lastLoginAt && (
+                                    <button
+                                      className="table-action-icon"
+                                      type="button"
+                                      title="Resend invite"
+                                      aria-label={`Resend invite to ${item.name}`}
+                                      onClick={async () => {
+                                        try {
+                                          await apiMutate('POST', `users/${item.id}/resend-invite`, {});
+                                          setNotice({ message: `Invite resent to ${item.email}`, tone: 'info' });
+                                        } catch (err) {
+                                          setNotice({ message: err instanceof Error ? err.message : 'Failed to resend invite', tone: 'warn' });
+                                        }
+                                      }}
+                                    >
+                                      <Icon name="mail" />
+                                    </button>
+                                  )}
                                   <button
-                                    className="table-action"
+                                    className="table-action-icon"
                                     type="button"
+                                    title="Edit user"
+                                    aria-label={`Edit ${item.name}`}
                                     onClick={() => {
                                       setEditForm({ name: item.name, email: item.email, roleCode: item.roleCode ?? '', status: item.status });
                                       setUserDrawer({ mode: 'edit', userId: item.id });
                                     }}
                                   >
-                                    Edit <Icon name="edit" />
+                                    <Icon name="edit" />
                                   </button>
                                   {item.id !== session?.actorId && (
                                     <button
-                                      className="table-action table-action-danger"
+                                      className="table-action-icon table-action-icon-danger"
                                       type="button"
+                                      title="Remove user"
+                                      aria-label={`Remove ${item.name}`}
                                       onClick={() => openDialog({
                                         title: `Remove ${item.name}`,
                                         description: `Remove ${item.name} (${item.email}) from the platform? This cannot be undone.`,
@@ -4688,7 +4710,7 @@ function App() {
                                         },
                                       })}
                                     >
-                                      Delete <Icon name="x" />
+                                      <Icon name="x" />
                                     </button>
                                   )}
                                 </div>
