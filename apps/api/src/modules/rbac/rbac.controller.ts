@@ -29,25 +29,25 @@ export class RbacController {
     return this.rbacService.rolePermissionsMatrix();
   }
 
-  @RequirePermissions('settings.update')
+  @RequirePermissions('roles.manage')
   @Post('roles')
   async createRole(@Body() payload: CreateRoleRequestDto): Promise<object> {
     return this.rbacService.createRole(payload);
   }
 
-  @RequirePermissions('settings.update')
+  @RequirePermissions('roles.manage')
   @Patch('roles/:id')
   async updateRole(@Param('id') id: string, @Body() payload: UpdateRoleRequestDto): Promise<object> {
     return this.rbacService.updateRole(id, payload);
   }
 
-  @RequirePermissions('settings.update')
+  @RequirePermissions('roles.manage')
   @Put('roles/:id/permissions')
   async updateRolePermissions(@Param('id') id: string, @Body() payload: UpdateRolePermissionsRequestDto): Promise<object> {
     return this.rbacService.updateRolePermissions(id, payload.permissionCodes);
   }
 
-  @RequirePermissions('settings.update')
+  @RequirePermissions('roles.manage')
   @Delete('roles/:id')
   async deleteRole(@Param('id') id: string): Promise<object> {
     return this.rbacService.deleteRole(id);

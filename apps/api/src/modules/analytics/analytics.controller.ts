@@ -26,7 +26,7 @@ export class AnalyticsController {
     return this.analyticsService.trends({ from, to });
   }
 
-  @RequirePermissions('dashboard.customer_portfolio.read')
+  @RequirePermissions('dashboard.customers.read')
   @Get('customer-portfolio')
   async customerPortfolio(
     @Query('page') page?: string,
@@ -43,13 +43,13 @@ export class AnalyticsController {
     return this.analyticsService.customerPortfolio(p, ps, Object.keys(filter).length > 0 ? filter : undefined);
   }
 
-  @RequirePermissions('dashboard.customer_portfolio.read')
+  @RequirePermissions('dashboard.customers.read')
   @Get('customer-portfolio/:customerId')
   async customerPortfolioDetail(@Param('customerId') customerId: string): Promise<object> {
     return this.analyticsService.customerPortfolioDetail(customerId);
   }
 
-  @RequirePermissions('dashboard.wealth_manager.read')
+  @RequirePermissions('dashboard.managers.read')
   @Get('wealth-managers')
   async wealthManagers(@Query('q') q?: string): Promise<object> {
     return this.analyticsService.wealthManagers(q ? { q } : undefined);

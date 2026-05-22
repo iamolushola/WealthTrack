@@ -4,14 +4,14 @@ import { AuthenticatedActor } from '../../../common/authenticated-actor';
 @Injectable()
 export class InvestmentsPolicy {
   assertCanReadCustomerPortfolio(actor: AuthenticatedActor | undefined): void {
-    if (!actor?.permissions.includes('dashboard.customer_portfolio.read')) {
-      throw new ForbiddenException('dashboard.customer_portfolio.read is required');
+    if (!actor?.permissions.includes('dashboard.customers.read')) {
+      throw new ForbiddenException('dashboard.customers.read is required');
     }
   }
 
   assertCanReadLedger(actor: AuthenticatedActor | undefined): void {
-    if (!actor?.permissions.includes('dashboard.summary.read') && !actor?.permissions.includes('dashboard.customer_portfolio.read')) {
-      throw new ForbiddenException('dashboard.summary.read or dashboard.customer_portfolio.read is required');
+    if (!actor?.permissions.includes('dashboard.investments.read')) {
+      throw new ForbiddenException('dashboard.investments.read is required');
     }
   }
 

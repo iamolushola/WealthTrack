@@ -706,10 +706,10 @@ const VIEW_PERMISSION_MAP: Partial<Record<ViewId, string>> = {
   summary:           'dashboard.summary.read',
   trends:            'dashboard.trends.read',
   reports:           'reports.export',
-  portfolio:         'dashboard.customer_portfolio.read',
-  investments:       'dashboard.customer_portfolio.read',
-  'wealth-managers': 'dashboard.wealth_manager.read',
-  commissions:       'dashboard.wealth_manager.read',
+  portfolio:         'dashboard.customers.read',
+  investments:       'dashboard.investments.read',
+  'wealth-managers': 'dashboard.managers.read',
+  commissions:       'dashboard.commissions.read',
   uploads:           'uploads.history.read',
   users:             'users.read',
   settings:          'settings.update',
@@ -4524,10 +4524,11 @@ function App() {
     // can understand what they're granting without reading permission codes.
     const GROUP_META: Record<string, { title: string; context: string }> = {
       auth:         { title: 'Platform Access',        context: 'Required for every user — controls the ability to sign in' },
-      dashboard:    { title: 'Analytics & Dashboards', context: 'Overview tab · Trends tab · Customers tab · Managers tab' },
+      dashboard:    { title: 'Analytics & Dashboards', context: 'Overview tab · Trends tab · Customers tab · Investments tab · Managers tab · Commissions tab' },
       uploads:      { title: 'Uploads',                context: 'Uploads tab — controls who can upload files, preview, and import data' },
       reports:      { title: 'Reports & Exports',      context: 'Reports tab — controls who can generate and download export files' },
       users:        { title: 'Team Management',        context: 'Team tab — controls who can view, invite, edit, and remove team members' },
+      roles:        { title: 'Role Management',        context: 'Team tab → Roles & Permissions — controls who can create, edit, and delete roles' },
       integrations: { title: 'Data Integrations',      context: 'Settings → Integrations — controls who can manage connected data sources' },
       audit:        { title: 'Audit Log',              context: 'Settings → Audit Log — controls who can view the full activity history' },
       settings:     { title: 'System Settings',        context: 'Settings tab — controls who can change platform config and classification rules' },
@@ -4535,7 +4536,7 @@ function App() {
     };
 
     // Display groups in platform-tab order (not alphabetical)
-    const GROUP_ORDER = ['auth', 'dashboard', 'uploads', 'reports', 'users', 'integrations', 'audit', 'settings', 'jobs'];
+    const GROUP_ORDER = ['auth', 'dashboard', 'uploads', 'reports', 'users', 'roles', 'integrations', 'audit', 'settings', 'jobs'];
 
     const permGroups = matrixPermissions.reduce<Record<string, PermissionItem[]>>((acc, p) => {
       const group = p.code.split('.')[0] ?? 'other';
@@ -4799,7 +4800,7 @@ function App() {
                     <h3>Role Permissions</h3>
                     <p className="eyebrow">{formatCount(matrixRoles.length)} roles • {formatCount(matrixPermissions.length)} permissions</p>
                   </div>
-                  {canManageTeam && (
+                  {hasPerm('roles.manage') && (
                     <button className="primary-button" type="button" onClick={() => setShowCreateRoleDrawer(true)}>
                       Create role
                     </button>
@@ -4833,7 +4834,7 @@ function App() {
                             <th key={role.id} scope="col" className="perm-col-role">
                               <div className="perm-role-header">
                                 <span>{role.name}</span>
-                                {!role.isSystem && canManageTeam && (
+                                {!role.isSystem && hasPerm('roles.manage') && (
                                   <button className="perm-delete-role" type="button" onClick={() => handleDeleteRole(role.id, role.name)} aria-label={`Delete ${role.name} role`} title="Delete role">
                                     <Icon name="x" />
                                   </button>
@@ -4871,8 +4872,8 @@ function App() {
                                       <input
                                         type="checkbox"
                                         checked={checked}
-                                        disabled={savingRoleId === role.id || !canManageTeam}
-                                        onChange={() => canManageTeam && handleTogglePermission(role.id, perm.code, role.permissionCodes)}
+                                        disabled={savingRoleId === role.id || !hasPerm('roles.manage')}
+                                        onChange={() => hasPerm('roles.manage') && handleTogglePermission(role.id, perm.code, role.permissionCodes)}
                                         aria-label={`${role.name}: ${perm.description ?? perm.code}`}
                                       />
                                     </td>

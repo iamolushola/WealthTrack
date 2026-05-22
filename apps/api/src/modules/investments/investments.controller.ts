@@ -11,7 +11,7 @@ import { InvestmentsService } from './investments.service';
 export class InvestmentsController {
   constructor(private readonly investmentsService: InvestmentsService) {}
 
-  @RequirePermissions('dashboard.summary.read')
+  @RequirePermissions('dashboard.commissions.read')
   @Get('commissions')
   async listCommissions(
     @CurrentActor() actor: AuthenticatedActor,
@@ -35,7 +35,7 @@ export class InvestmentsController {
     return this.investmentsService.listCommissions(actor, p, ps, filters);
   }
 
-  @RequirePermissions('dashboard.summary.read')
+  @RequirePermissions('dashboard.investments.read')
   @Get()
   async list(
     @CurrentActor() actor: AuthenticatedActor,
@@ -63,7 +63,7 @@ export class InvestmentsController {
     return this.investmentsService.list(actor, p, ps, filters);
   }
 
-  @RequirePermissions('dashboard.summary.read')
+  @RequirePermissions('dashboard.investments.read')
   @Delete()
   async bulkDelete(
     @CurrentActor() actor: AuthenticatedActor,
@@ -72,7 +72,7 @@ export class InvestmentsController {
     return this.investmentsService.bulkDeleteByIds(body?.ids ?? [], actor);
   }
 
-  @RequirePermissions('dashboard.customer_portfolio.read')
+  @RequirePermissions('dashboard.customers.read')
   @Delete('customers')
   async bulkDeleteCustomers(
     @CurrentActor() actor: AuthenticatedActor,
@@ -81,7 +81,7 @@ export class InvestmentsController {
     return this.investmentsService.bulkDeleteByCustomerIds(body?.customerIds ?? [], actor);
   }
 
-  @RequirePermissions('dashboard.customer_portfolio.read')
+  @RequirePermissions('dashboard.customers.read')
   @Get(':customerId')
   async customerHistory(@Param('customerId') customerId: string, @CurrentActor() actor: AuthenticatedActor): Promise<object> {
     return this.investmentsService.customerHistory(customerId, actor);
