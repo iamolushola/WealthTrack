@@ -21,6 +21,8 @@ export class JobDispatcherService implements OnModuleDestroy {
   private readonly connection = new IORedis({
     host: process.env.REDIS_HOST ?? '127.0.0.1',
     port: Number(process.env.REDIS_PORT ?? 6380),
+    username: process.env.REDIS_USER,
+    password: process.env.REDIS_PASSWORD,
     maxRetriesPerRequest: null,
   });
 
