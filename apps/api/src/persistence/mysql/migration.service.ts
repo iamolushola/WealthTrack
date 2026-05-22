@@ -4,10 +4,12 @@ import * as path from 'node:path';
 import { createConnection, RowDataPacket } from 'mysql2/promise';
 
 // MySQL error numbers that mean "this DDL was already applied" — safe to skip.
-// 1050: ER_TABLE_EXISTS_ERROR  (CREATE TABLE … already exists)
-// 1060: ER_DUP_FIELDNAME       (ADD COLUMN … already exists)
-// 1061: ER_DUP_KEYNAME         (ADD INDEX … already exists)
-const ALREADY_APPLIED_ERRNO = new Set([1050, 1060, 1061]);
+// 1050: ER_TABLE_EXISTS_ERROR       (CREATE TABLE … already exists)
+// 1060: ER_DUP_FIELDNAME            (ADD COLUMN … already exists)
+// 1061: ER_DUP_KEYNAME              (ADD INDEX … already exists)
+// 1091: ER_CANT_DROP_FIELD_OR_KEY   (DROP INDEX/KEY … doesn't exist)
+// 3940: ER_CONSTRAINT_NOT_FOUND     (DROP CONSTRAINT … doesn't exist)
+const ALREADY_APPLIED_ERRNO = new Set([1050, 1060, 1061, 1091, 3940]);
 
 /**
  * Runs any pending SQL migration files from infra/mysql/migrations on startup.
