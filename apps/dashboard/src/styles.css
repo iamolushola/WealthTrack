@@ -4564,6 +4564,44 @@ select:focus-visible {
   border-color: var(--tone-warn, #d97706);
 }
 
+/* Icon-only action buttons for table rows */
+.table-action-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--control-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 140ms ease, border-color 140ms ease, background 140ms ease;
+  flex-shrink: 0;
+}
+
+.table-action-icon:hover {
+  color: var(--text-strong);
+  border-color: var(--line-strong);
+  background: var(--brand-soft);
+}
+
+.table-action-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.table-action-icon.table-action-icon-danger {
+  color: var(--tone-warn, #d97706);
+  border-color: color-mix(in srgb, var(--tone-warn, #d97706) 25%, transparent);
+}
+
+.table-action-icon.table-action-icon-danger:hover {
+  background: color-mix(in srgb, var(--tone-warn, #d97706) 10%, transparent);
+  border-color: var(--tone-warn, #d97706);
+  color: var(--tone-warn, #d97706);
+}
+
 .table-action svg {
   width: 13px;
   height: 13px;
