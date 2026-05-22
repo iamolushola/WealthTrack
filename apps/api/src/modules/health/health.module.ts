@@ -1,8 +1,10 @@
 import { Module } from '@nestjs/common';
 import { HealthController } from './health.controller';
 import { HealthService } from './health.service';
+import { MysqlModule } from '../../persistence/mysql/mysql.module';
 
 @Module({
+  imports: [MysqlModule],
   controllers: [HealthController],
   providers: [HealthService],
 })
