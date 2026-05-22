@@ -4637,16 +4637,34 @@ function App() {
                             <td><span className={`pill pill-${tone}`}>{item.status}</span></td>
                             <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
                             <td>
-                              <button
-                                className="table-action"
-                                type="button"
-                                onClick={() => {
-                                  setEditForm({ name: item.name, email: item.email, roleCode: item.roleCode ?? '', status: item.status });
-                                  setUserDrawer({ mode: 'edit', userId: item.id });
-                                }}
-                              >
-                                Edit <Icon name="edit" />
-                              </button>
+                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                {!item.lastLoginAt && (
+                                  <button
+                                    className="table-action"
+                                    type="button"
+                                    onClick={async () => {
+                                      try {
+                                        await apiMutate('POST', `users/${item.id}/resend-invite`, {});
+                                        setNotice({ message: `Invite resent to ${item.email}`, tone: 'info' });
+                                      } catch (err) {
+                                        setNotice({ message: err instanceof Error ? err.message : 'Failed to resend invite', tone: 'warn' });
+                                      }
+                                    }}
+                                  >
+                                    Resend invite <Icon name="mail" />
+                                  </button>
+                                )}
+                                <button
+                                  className="table-action"
+                                  type="button"
+                                  onClick={() => {
+                                    setEditForm({ name: item.name, email: item.email, roleCode: item.roleCode ?? '', status: item.status });
+                                    setUserDrawer({ mode: 'edit', userId: item.id });
+                                  }}
+                                >
+                                  Edit <Icon name="edit" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );

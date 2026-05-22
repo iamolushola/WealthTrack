@@ -108,6 +108,27 @@ export class UsersService {
     return sanitizeUser(user);
   }
 
+  async resendInvite(id: string, actor: AuthenticatedActor): Promise<{ message: string }> {
+    this.usersPolicy.assertCanManage(actor, 'users.create');
+    const user = await this.usersRepository.findById(id);
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    const now = nowIso();
+    const { tokenId, rawToken } = await this.authService.issueWelcomeToken(user.id, now);
+    const { subject, html } = this.authService.welcomeTemplate({
+      recipientName: user.name,
+      recipientEmail: user.email,
+      tokenId,
+      rawToken,
+      expiresInHours: this.authService.setPasswordExpiryHours,
+      createdByName: actor.actorId,
+    });
+    await this.mailerService.sendMail({ to: user.email, subject, html });
+    return { message: `Invite resent to ${user.email}` };
+  }
+
   async update(id: string, payload: UpdateUserRequestDto, actor: AuthenticatedActor): Promise<object> {
     this.usersPolicy.assertCanManage(actor, 'users.update');
     const user = await this.usersRepository.findById(id);

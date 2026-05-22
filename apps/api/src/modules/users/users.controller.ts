@@ -59,6 +59,15 @@ export class UsersController {
     return this.usersService.create(payload, actor);
   }
 
+  @RequirePermissions('users.create')
+  @Post(':id/resend-invite')
+  resendInvite(
+    @Param('id') id: string,
+    @CurrentActor() actor: AuthenticatedActor,
+  ): Promise<{ message: string }> {
+    return this.usersService.resendInvite(id, actor);
+  }
+
   @RequirePermissions('users.update')
   @Patch(':id')
   update(
