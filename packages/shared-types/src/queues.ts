@@ -10,6 +10,10 @@ export interface ProcessCsvUploadJob {
   batchId: string;
   requestId: string;
   correlationId: string;
+  /** Base64-encoded CSV content. Present when cloud upload failed and the API
+   *  fell back to local storage — lets the worker read the file without needing
+   *  access to the API pod's filesystem (required in multi-pod deployments). */
+  fileContent?: string;
 }
 
 export interface ConfirmImportJob {
