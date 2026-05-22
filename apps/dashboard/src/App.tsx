@@ -700,6 +700,48 @@ const navigationItems: NavItem[] = [
   { label: 'Settings', icon: 'settings', view: 'settings' },
 ];
 
+// Maps each view to the permission required to access it.
+// Views not listed here are accessible to all authenticated users.
+const VIEW_PERMISSION_MAP: Partial<Record<ViewId, string>> = {
+  summary:           'dashboard.summary.read',
+  trends:            'dashboard.trends.read',
+  reports:           'reports.export',
+  portfolio:         'dashboard.customer_portfolio.read',
+  investments:       'dashboard.customer_portfolio.read',
+  'wealth-managers': 'dashboard.wealth_manager.read',
+  commissions:       'dashboard.wealth_manager.read',
+  uploads:           'uploads.history.read',
+  users:             'users.read',
+  settings:          'settings.update',
+};
+
+const ROLE_LABELS: Record<string, string> = {
+  super_admin:        'Super Administrator',
+  admin:              'Administrator',
+  analyst:            'Analyst',
+  uploader:           'Uploader',
+  ops_manager:        'Operations Manager',
+  compliance_officer: 'Compliance Officer',
+  viewer:             'Viewer',
+};
+
+function getInitials(name: string): string {
+  return name.split(' ').filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('');
+}
+
+// Ordered preference for first-permitted view after login or redirect
+const PERMITTED_VIEW_ORDER: ViewId[] = [
+  'summary', 'trends', 'portfolio', 'investments', 'wealth-managers',
+  'commissions', 'uploads', 'reports', 'users', 'settings',
+];
+
+const VIEW_PATHS: Record<ViewId, string> = {
+  summary: '/summary', trends: '/trends', portfolio: '/portfolio',
+  investments: '/investments', 'wealth-managers': '/wealth-managers',
+  commissions: '/commissions', uploads: '/uploads', reports: '/reports',
+  users: '/users', settings: '/settings',
+};
+
 const navigationSections: NavSection[] = [
   {
     title: 'Analytics',
@@ -1318,7 +1360,10 @@ function App() {
     return stored;
   });
   // Derived: only super_admin and admin can manage the team (invite, edit, view the Team page)
-  const canManageTeam = session?.roleCode === 'super_admin' || session?.roleCode === 'admin';
+  // Permission helper — checks if the current session holds a specific permission code
+  const hasPerm = (code: string): boolean => session?.permissions.includes(code) ?? false;
+  // Derived access flags
+  const canManageTeam = hasPerm('users.create');  // invite / edit / delete team members
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -1733,12 +1778,18 @@ function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, commissionsPage, debouncedQuery, commissionFilters]);
 
-  // Redirect users who lack team-management access away from /users
+  // Redirect to the first permitted view when the user lands on a view they cannot access
   useEffect(() => {
-    if (session && !canManageTeam && currentView === 'users') {
-      navigate('/summary');
+    if (!session) return;
+    const requiredPerm = VIEW_PERMISSION_MAP[currentView];
+    if (requiredPerm && !session.permissions.includes(requiredPerm)) {
+      const firstView = PERMITTED_VIEW_ORDER.find((v) => {
+        const p = VIEW_PERMISSION_MAP[v];
+        return !p || session.permissions.includes(p);
+      }) ?? 'summary';
+      navigate(VIEW_PATHS[firstView], { replace: true });
     }
-  }, [session, canManageTeam, currentView, navigate]);
+  }, [session, currentView, navigate]);
 
   useEffect(() => {
     if (currentView !== 'wealth-managers' || wealthManagersOverview.status !== 'idle') {
@@ -5395,7 +5446,7 @@ function App() {
               <p className="eyebrow">Source of truth</p>
               <h3>Upload dataset</h3>
             </div>
-            {items.length > 0 ? (
+            {hasPerm('uploads.csv.create') && items.length > 0 ? (
               <button
                 className="danger-button"
                 type="button"
@@ -5412,6 +5463,8 @@ function App() {
             ) : null}
           </div>
 
+          {hasPerm('uploads.csv.create') ? (
+          <>
           <label
             htmlFor="upload-file-input"
             className={isDragOver ? 'upload-dropzone upload-dropzone-over' : 'upload-dropzone'}
@@ -5467,6 +5520,7 @@ function App() {
               </button>
             </div>
           ) : null}
+          </>) : null}
         </section>
 
         <section className="panel table-panel">
@@ -5512,7 +5566,7 @@ function App() {
                         <td><span className={`pill pill-${tone}`}>{item.status.replace(/_/g, ' ')}</span></td>
                         <td className="upload-actions-cell">
                           <div className="upload-actions-wrap">
-                            {(item.status === 'validated' || item.status === 'importing' || item.status === 'partially_imported') && (
+                            {(item.status === 'validated' || item.status === 'importing' || item.status === 'partially_imported') && hasPerm('uploads.import.confirm') && (
                               <button
                                 className="table-action table-action-confirm"
                                 type="button"
@@ -5543,6 +5597,7 @@ function App() {
                                 {item.status === 'partially_imported' ? 'Retry import' : 'Confirm import'}
                               </button>
                             )}
+                            {hasPerm('uploads.csv.create') && (
                             <button
                               className="table-action table-action-danger"
                               type="button"
@@ -5563,6 +5618,7 @@ function App() {
                             >
                               Delete<Icon name="x" />
                             </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -6455,7 +6511,10 @@ function App() {
           {navigationSections
             .map((section) => ({
               ...section,
-              items: section.items.filter((item) => item.view !== 'users' || canManageTeam),
+              items: section.items.filter((item) => {
+                const required = VIEW_PERMISSION_MAP[item.view];
+                return !required || hasPerm(required);
+              }),
             }))
             .filter((section) => section.items.length > 0)
             .map((section) => {
@@ -6518,10 +6577,10 @@ function App() {
                 onConfirm: handleLogout,
               })}
             >
-              <span className="user-avatar">PA</span>
+              <span className="user-avatar">{session ? getInitials(session.name) : '?'}</span>
               <span className="user-copy">
-                <strong>Operations Lead</strong>
-                <small>Signed in</small>
+                <strong>{session?.name ?? 'Unknown'}</strong>
+                <small>{ROLE_LABELS[session?.roleCode ?? ''] ?? session?.roleCode ?? ''}</small>
               </span>
               <Icon name="logout" />
             </button>
