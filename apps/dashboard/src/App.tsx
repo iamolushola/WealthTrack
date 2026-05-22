@@ -4446,6 +4446,29 @@ function App() {
                     Reset password
                   </button>
                 </div>
+                {!editingUser.lastLoginAt && (
+                  <div className="field-card field-card-wide" style={{ background: 'transparent', border: 'none', padding: 0 }}>
+                    <span className="field-label" style={{ marginBottom: 2, display: 'block' }}>Invite</span>
+                    <span className="field-help" style={{ display: 'block', marginBottom: 8 }}>
+                      This user hasn't logged in yet. Save any email corrections above first, then resend the invite.
+                    </span>
+                    <button
+                      className="secondary-button"
+                      type="button"
+                      onClick={async () => {
+                        try {
+                          await apiMutate('POST', `users/${editingUser.id}/resend-invite`, {});
+                          setNotice({ message: `Invite resent to ${editForm.email || editingUser.email}`, tone: 'info' });
+                          closeDrawer();
+                        } catch (err) {
+                          setNotice({ message: err instanceof Error ? err.message : 'Failed to resend invite', tone: 'warn' });
+                        }
+                      }}
+                    >
+                      Resend invite <Icon name="mail" />
+                    </button>
+                  </div>
+                )}
               </div>
             ) : (
               <div className="empty-state"><h4>User not found</h4></div>
@@ -4661,23 +4684,7 @@ function App() {
                             <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
                             <td>
                               {canManageTeam ? (
-                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                  {!item.lastLoginAt && (
-                                    <button
-                                      className="table-action"
-                                      type="button"
-                                      onClick={async () => {
-                                        try {
-                                          await apiMutate('POST', `users/${item.id}/resend-invite`, {});
-                                          setNotice({ message: `Invite resent to ${item.email}`, tone: 'info' });
-                                        } catch (err) {
-                                          setNotice({ message: err instanceof Error ? err.message : 'Failed to resend invite', tone: 'warn' });
-                                        }
-                                      }}
-                                    >
-                                      Resend invite <Icon name="mail" />
-                                    </button>
-                                  )}
+                                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'flex-start' }}>
                                   <button
                                     className="table-action"
                                     type="button"
