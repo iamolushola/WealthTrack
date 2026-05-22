@@ -4518,24 +4518,35 @@ function App() {
     const matrixRoles = roleMatrix.data?.roles ?? [];
     const matrixPermissions = roleMatrix.data?.permissions ?? [];
 
-    // Group permissions by category prefix and map to human-readable section names
-    const GROUP_LABELS: Record<string, string> = {
-      auth:         'Authentication',
-      users:        'Team Management',
-      uploads:      'Data Uploads',
-      dashboard:    'Dashboards & Analytics',
-      reports:      'Reports & Exports',
-      integrations: 'Data Integrations',
-      audit:        'Audit & Compliance',
-      settings:     'System Settings',
-      jobs:         'Background Jobs',
+    // Group permissions by category prefix and map to human-readable section names.
+    // Each entry includes the display title and a plain-English note about which
+    // platform tab or section the permission unlocks — so non-technical admins
+    // can understand what they're granting without reading permission codes.
+    const GROUP_META: Record<string, { title: string; context: string }> = {
+      auth:         { title: 'Platform Access',        context: 'Required for every user — controls the ability to sign in' },
+      dashboard:    { title: 'Analytics & Dashboards', context: 'Overview tab · Trends tab · Customers tab · Managers tab' },
+      uploads:      { title: 'Uploads',                context: 'Uploads tab — controls who can upload files, preview, and import data' },
+      reports:      { title: 'Reports & Exports',      context: 'Reports tab — controls who can generate and download export files' },
+      users:        { title: 'Team Management',        context: 'Team tab — controls who can view, invite, edit, and remove team members' },
+      integrations: { title: 'Data Integrations',      context: 'Settings → Integrations — controls who can manage connected data sources' },
+      audit:        { title: 'Audit Log',              context: 'Settings → Audit Log — controls who can view the full activity history' },
+      settings:     { title: 'System Settings',        context: 'Settings tab — controls who can change platform config and classification rules' },
+      jobs:         { title: 'Background Jobs',        context: 'Settings → Background Jobs — controls who can retry failed system jobs' },
     };
+
+    // Display groups in platform-tab order (not alphabetical)
+    const GROUP_ORDER = ['auth', 'dashboard', 'uploads', 'reports', 'users', 'integrations', 'audit', 'settings', 'jobs'];
 
     const permGroups = matrixPermissions.reduce<Record<string, PermissionItem[]>>((acc, p) => {
       const group = p.code.split('.')[0] ?? 'other';
       acc[group] = [...(acc[group] ?? []), p];
       return acc;
     }, {});
+
+    const sortedGroupEntries = GROUP_ORDER
+      .filter((g) => permGroups[g])
+      .map((g) => [g, permGroups[g]] as [string, PermissionItem[]])
+      .concat(Object.entries(permGroups).filter(([g]) => !GROUP_ORDER.includes(g)));
 
     async function handleTogglePermission(roleId: string, permCode: string, currentCodes: string[]) {
       const newCodes = currentCodes.includes(permCode)
@@ -4838,16 +4849,20 @@ function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {Object.entries(permGroups).sort(([a], [b]) => a.localeCompare(b)).map(([group, perms]) => (
+                        {sortedGroupEntries.map(([group, perms]) => (
                           <>
                             <tr key={`group-${group}`} className="perm-group-row">
-                              <td colSpan={matrixRoles.length + 1} className="perm-group-label">{GROUP_LABELS[group] ?? group}</td>
+                              <td colSpan={matrixRoles.length + 1} className="perm-group-label">
+                                <span className="perm-group-title">{GROUP_META[group]?.title ?? group}</span>
+                                {GROUP_META[group]?.context && (
+                                  <span className="perm-group-context">{GROUP_META[group].context}</span>
+                                )}
+                              </td>
                             </tr>
                             {perms.map((perm) => (
                               <tr key={perm.id}>
                                 <td className="perm-col-label">
                                   <span className="perm-desc">{perm.description ?? perm.code}</span>
-                                  <code className="perm-code">{perm.code}</code>
                                 </td>
                                 {matrixRoles.map((role) => {
                                   const checked = role.permissionCodes.includes(perm.code);
@@ -4858,7 +4873,7 @@ function App() {
                                         checked={checked}
                                         disabled={savingRoleId === role.id || !canManageTeam}
                                         onChange={() => canManageTeam && handleTogglePermission(role.id, perm.code, role.permissionCodes)}
-                                        aria-label={`${role.name}: ${perm.code}`}
+                                        aria-label={`${role.name}: ${perm.description ?? perm.code}`}
                                       />
                                     </td>
                                   );

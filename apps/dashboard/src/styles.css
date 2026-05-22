@@ -3597,12 +3597,26 @@ select:focus-visible {
 }
 
 .perm-group-label {
-  padding: 8px 14px;
+  padding: 10px 14px;
+}
+
+.perm-group-title {
+  display: block;
   font-size: 0.73rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--soft);
+}
+
+.perm-group-context {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  margin-top: 2px;
 }
 
 .perm-row:hover {
@@ -5024,12 +5038,27 @@ select:focus-visible {
 }
 
 .perm-group-label {
+  padding: 10px 16px !important;
+}
+
+.perm-group-title {
+  display: block;
   font-size: 0.7rem;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--muted);
-  padding: 8px 16px !important;
+}
+
+.perm-group-context {
+  display: block;
+  font-size: 0.78rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--muted);
+  opacity: 0.75;
+  margin-top: 2px;
 }
 
 /* Description is shown first — plain English for non-technical readers */
@@ -5038,18 +5067,7 @@ select:focus-visible {
   font-size: 0.875rem;
   font-weight: 500;
   color: var(--text);
-  margin-bottom: 3px;
   white-space: normal;
-}
-
-/* Technical code shown underneath as a small monospace hint */
-.perm-code {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 400;
-  font-family: ui-monospace, 'Cascadia Code', monospace;
-  color: var(--muted);
-  letter-spacing: 0.01em;
 }
 
 .perm-role-header {
