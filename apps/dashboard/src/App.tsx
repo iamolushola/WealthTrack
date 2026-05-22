@@ -1317,6 +1317,8 @@ function App() {
     }
     return stored;
   });
+  // Derived: only super_admin and admin can manage the team (invite, edit, view the Team page)
+  const canManageTeam = session?.roleCode === 'super_admin' || session?.roleCode === 'admin';
   // Login form state
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -1730,6 +1732,13 @@ function App() {
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentView, commissionsPage, debouncedQuery, commissionFilters]);
+
+  // Redirect users who lack team-management access away from /users
+  useEffect(() => {
+    if (session && !canManageTeam && currentView === 'users') {
+      navigate('/summary');
+    }
+  }, [session, canManageTeam, currentView, navigate]);
 
   useEffect(() => {
     if (currentView !== 'wealth-managers' || wealthManagersOverview.status !== 'idle') {
@@ -4584,11 +4593,13 @@ function App() {
                   <h3>Administrators</h3>
                   <p className="eyebrow">{formatCount(userItems.length)} accounts</p>
                 </div>
-                <div className="panel-header-actions">
-                  <button className="primary-button" type="button" onClick={() => setUserDrawer({ mode: 'invite' })}>
-                    <Icon name="plus" /> Invite user
-                  </button>
-                </div>
+                {canManageTeam && (
+                  <div className="panel-header-actions">
+                    <button className="primary-button" type="button" onClick={() => setUserDrawer({ mode: 'invite' })}>
+                      <Icon name="plus" /> Invite user
+                    </button>
+                  </div>
+                )}
               </div>
 
               {usersOverview.status === 'loading' && userItems.length === 0 ? (
@@ -4637,34 +4648,36 @@ function App() {
                             <td><span className={`pill pill-${tone}`}>{item.status}</span></td>
                             <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
                             <td>
-                              <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                                {!item.lastLoginAt && (
+                              {canManageTeam ? (
+                                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                  {!item.lastLoginAt && (
+                                    <button
+                                      className="table-action"
+                                      type="button"
+                                      onClick={async () => {
+                                        try {
+                                          await apiMutate('POST', `users/${item.id}/resend-invite`, {});
+                                          setNotice({ message: `Invite resent to ${item.email}`, tone: 'info' });
+                                        } catch (err) {
+                                          setNotice({ message: err instanceof Error ? err.message : 'Failed to resend invite', tone: 'warn' });
+                                        }
+                                      }}
+                                    >
+                                      Resend invite <Icon name="mail" />
+                                    </button>
+                                  )}
                                   <button
                                     className="table-action"
                                     type="button"
-                                    onClick={async () => {
-                                      try {
-                                        await apiMutate('POST', `users/${item.id}/resend-invite`, {});
-                                        setNotice({ message: `Invite resent to ${item.email}`, tone: 'info' });
-                                      } catch (err) {
-                                        setNotice({ message: err instanceof Error ? err.message : 'Failed to resend invite', tone: 'warn' });
-                                      }
+                                    onClick={() => {
+                                      setEditForm({ name: item.name, email: item.email, roleCode: item.roleCode ?? '', status: item.status });
+                                      setUserDrawer({ mode: 'edit', userId: item.id });
                                     }}
                                   >
-                                    Resend invite <Icon name="mail" />
+                                    Edit <Icon name="edit" />
                                   </button>
-                                )}
-                                <button
-                                  className="table-action"
-                                  type="button"
-                                  onClick={() => {
-                                    setEditForm({ name: item.name, email: item.email, roleCode: item.roleCode ?? '', status: item.status });
-                                    setUserDrawer({ mode: 'edit', userId: item.id });
-                                  }}
-                                >
-                                  Edit <Icon name="edit" />
-                                </button>
-                              </div>
+                                </div>
+                              ) : '—'}
                             </td>
                           </tr>
                         );
@@ -4684,9 +4697,11 @@ function App() {
                     <h3>Role Permissions</h3>
                     <p className="eyebrow">{formatCount(matrixRoles.length)} roles • {formatCount(matrixPermissions.length)} permissions</p>
                   </div>
-                  <button className="primary-button" type="button" onClick={() => setShowCreateRoleDrawer(true)}>
-                    Create role
-                  </button>
+                  {canManageTeam && (
+                    <button className="primary-button" type="button" onClick={() => setShowCreateRoleDrawer(true)}>
+                      Create role
+                    </button>
+                  )}
                 </div>
 
                 {roleMatrix.status === 'loading' ? (
@@ -4716,7 +4731,7 @@ function App() {
                             <th key={role.id} scope="col" className="perm-col-role">
                               <div className="perm-role-header">
                                 <span>{role.name}</span>
-                                {!role.isSystem && (
+                                {!role.isSystem && canManageTeam && (
                                   <button className="perm-delete-role" type="button" onClick={() => handleDeleteRole(role.id, role.name)} aria-label={`Delete ${role.name} role`} title="Delete role">
                                     <Icon name="x" />
                                   </button>
@@ -4750,8 +4765,8 @@ function App() {
                                       <input
                                         type="checkbox"
                                         checked={checked}
-                                        disabled={savingRoleId === role.id}
-                                        onChange={() => handleTogglePermission(role.id, perm.code, role.permissionCodes)}
+                                        disabled={savingRoleId === role.id || !canManageTeam}
+                                        onChange={() => canManageTeam && handleTogglePermission(role.id, perm.code, role.permissionCodes)}
                                         aria-label={`${role.name}: ${perm.code}`}
                                       />
                                     </td>
@@ -6398,7 +6413,13 @@ function App() {
         </div>
 
         <nav className="sidebar-nav" aria-label="Primary navigation">
-          {navigationSections.map((section) => {
+          {navigationSections
+            .map((section) => ({
+              ...section,
+              items: section.items.filter((item) => item.view !== 'users' || canManageTeam),
+            }))
+            .filter((section) => section.items.length > 0)
+            .map((section) => {
             const isCollapsed = collapsedSections[section.title];
 
             return (
