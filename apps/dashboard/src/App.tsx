@@ -4653,6 +4653,9 @@ function App() {
                             <td>
                               <div className="table-primary-cell">
                                 <strong>{item.name}</strong>
+                                {item.id === session?.actorId && (
+                                  <span className="you-badge">You</span>
+                                )}
                               </div>
                             </td>
                             <td><span className="table-secondary-copy">{item.email}</span></td>
@@ -6434,7 +6437,6 @@ function App() {
           <div className="brand-mark">W</div>
           <div className="brand-copy">
             <strong>WealthTrack</strong>
-            <span>Operations Console</span>
           </div>
           <button
             className="sidebar-toggle"
@@ -6501,14 +6503,8 @@ function App() {
           </div>
 
           <div className="topbar-actions">
-            <button className="icon-button" type="button" aria-label="Search">
-              <Icon name="search" />
-            </button>
             <button className="icon-button" type="button" aria-label={isDark ? 'Switch to light mode' : 'Switch to dark mode'} onClick={toggleTheme}>
               <Icon name={isDark ? 'sun' : 'moon'} />
-            </button>
-            <button className="icon-button" type="button" aria-label="Notifications">
-              <Icon name="bell" />
             </button>
 
             <button
