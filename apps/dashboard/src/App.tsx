@@ -1246,7 +1246,9 @@ function App() {
   const [showNewPwd, setShowNewPwd] = useState(false);
   const [showConfirmPwd, setShowConfirmPwd] = useState(false);
   const [rolesData, setRolesData] = useState<RequestState<{ items: RoleItem[]; count: number }>>({ status: 'idle', data: null, error: null });
+  const [rolesRefreshKey, setRolesRefreshKey] = useState(0);
   const [roleMatrix, setRoleMatrix] = useState<RequestState<RolePermissionsMatrix>>({ status: 'idle', data: null, error: null });
+  const [matrixRefreshKey, setMatrixRefreshKey] = useState(0);
   const [userDrawer, setUserDrawer] = useState<{ mode: 'invite' | 'edit' | null; userId?: string }>({ mode: null });
   const [inviteForm, setInviteForm] = useState({ name: '', email: '', roleCode: 'analyst' });
   const [editForm, setEditForm] = useState({ name: '', email: '', roleCode: '', status: '' });
@@ -1437,6 +1439,7 @@ function App() {
     data: null,
     error: null,
   });
+  const [usersRefreshKey, setUsersRefreshKey] = useState(0);
   const [settingsOverview, setSettingsOverview] = useState<RequestState<SettingsOverview>>({
     status: 'idle',
     data: null,
@@ -1880,34 +1883,15 @@ function App() {
   }, [currentView]);
 
   useEffect(() => {
-    if (currentView !== 'users' || usersOverview.status !== 'idle') {
-      return undefined;
-    }
-
+    if (currentView !== 'users') return undefined;
     let cancelled = false;
     setUsersOverview({ status: 'loading', data: null, error: null });
-
     void fetchViewData<UsersOverview>('users')
-      .then((data) => {
-        if (!cancelled) {
-          setUsersOverview({ status: 'ready', data, error: null });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setUsersOverview({
-            status: 'error',
-            data: null,
-            error: error instanceof Error ? error.message : 'Unknown error',
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
+      .then((data) => { if (!cancelled) setUsersOverview({ status: 'ready', data, error: null }); })
+      .catch((error: unknown) => { if (!cancelled) setUsersOverview({ status: 'error', data: null, error: error instanceof Error ? error.message : 'Unknown error' }); });
+    return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
+  }, [currentView, usersRefreshKey]);
 
   useEffect(() => {
     if (currentView !== 'settings' || settingsOverview.status !== 'idle') {
@@ -1937,9 +1921,9 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, usersOverview.status]);
+  }, [currentView]);
   useEffect(() => {
-    if (currentView !== 'users' || rolesData.status !== 'idle') return undefined;
+    if (currentView !== 'users') return undefined;
     let cancelled = false;
     setRolesData({ status: 'loading', data: null, error: null });
     void fetchViewData<{ items: RoleItem[]; count: number }>('roles')
@@ -1947,11 +1931,11 @@ function App() {
       .catch((err: unknown) => { if (!cancelled) setRolesData({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, rolesData.status]);
+  }, [currentView, rolesRefreshKey]);
 
   // Load role-permissions matrix when Roles & Permissions tab opens
   useEffect(() => {
-    if (currentView !== 'users' || usersTab !== 'roles' || roleMatrix.status !== 'idle') return undefined;
+    if (currentView !== 'users' || usersTab !== 'roles') return undefined;
     let cancelled = false;
     setRoleMatrix({ status: 'loading', data: null, error: null });
     void fetchViewData<RolePermissionsMatrix>('role-permissions')
@@ -1959,7 +1943,7 @@ function App() {
       .catch((err: unknown) => { if (!cancelled) setRoleMatrix({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, usersTab, roleMatrix.status]);
+  }, [currentView, usersTab, matrixRefreshKey]);
 
   // Load integrations when Settings → Config tab is open
   useEffect(() => {
@@ -4429,7 +4413,7 @@ function App() {
       try {
         await apiMutate('POST', 'users', { name: inviteForm.name.trim(), email: inviteForm.email.trim(), roleCode: inviteForm.roleCode });
         setNotice({ message: `Invite sent to ${inviteForm.email} — they'll receive a set-password email`, tone: 'info' });
-        setUsersOverview({ status: 'idle', data: null, error: null });
+        setUsersRefreshKey((k) => k + 1);
         closeDrawer();
       } catch (err: unknown) {
         setNotice({ message: err instanceof Error ? err.message : 'Failed to invite user', tone: 'warn' });
@@ -4444,7 +4428,7 @@ function App() {
           await apiMutate('PATCH', `users/${editingUser.id}/status`, { status: editForm.status });
         }
         setNotice({ message: 'User updated successfully', tone: 'info' });
-        setUsersOverview({ status: 'idle', data: null, error: null });
+        setUsersRefreshKey((k) => k + 1);
         closeDrawer();
       } catch (err: unknown) {
         setNotice({ message: err instanceof Error ? err.message : 'Failed to update user', tone: 'warn' });
@@ -4609,7 +4593,8 @@ function App() {
         setNotice({ message: `Role "${newRoleForm.name}" created`, tone: 'info' });
         setNewRoleForm({ name: '', code: '', description: '', codeEdited: false });
         setShowCreateRoleDrawer(false);
-        setRoleMatrix({ status: 'idle', data: null, error: null });
+        setRolesRefreshKey((k) => k + 1);
+        setMatrixRefreshKey((k) => k + 1);
       } catch (err: unknown) {
         setNotice({ message: err instanceof Error ? err.message : 'Failed to create role', tone: 'warn' });
       }
@@ -4624,7 +4609,8 @@ function App() {
         onConfirm: async () => {
           await apiMutate('DELETE', `roles/${roleId}`);
           setNotice({ tone: 'warn', message: `Role "${roleName}" has been deleted.` });
-          setRoleMatrix({ status: 'idle', data: null, error: null });
+          setRolesRefreshKey((k) => k + 1);
+          setMatrixRefreshKey((k) => k + 1);
         },
       });
     }
@@ -4814,7 +4800,7 @@ function App() {
                                         onConfirm: async () => {
                                           await apiMutate('DELETE', 'users', { ids: [item.id] });
                                           setNotice({ message: `${item.name} has been removed.`, tone: 'info' });
-                                          setUsersOverview({ status: 'idle', data: null, error: null });
+                                          setUsersRefreshKey((k) => k + 1);
                                         },
                                       })}
                                     >
