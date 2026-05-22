@@ -68,25 +68,30 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to SWR
-        uses: huaweicloud/swr-login@v2.1.0 # pinned to match order-pro
+        uses: huaweicloud/swr-login@v2.1.0
         with:
           access-key-id: ${{ secrets.ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.ACCESS_KEY_SECRET }}
           region: af-south-1
+
       - name: Build and push API image
-        env:
-          APP_VERSION: ${{ github.sha }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          push: true
+          tags: ${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/wealthtrack-api:${{ env.IMAGE_TAG }}
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      - name: Summarise
         run: |
-          set -euo pipefail
-          export DOCKER_BUILDKIT=0
-          IMAGE_REF="${SWR_REGISTRY}/${SWR_NAMESPACE}/wealthtrack-api:${IMAGE_TAG}"
-          docker build \
-            --build-arg APP_VERSION="${APP_VERSION}" \
-            -t "${IMAGE_REF}" \
-            -f apps/api/Dockerfile .
-          docker push "${IMAGE_REF}"
-          { echo "### Build API"; echo "- \`${IMAGE_REF}\`"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Build API"; echo "- \`${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/wealthtrack-api:${{ env.IMAGE_TAG }}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
   build-worker:
     name: Build & push worker image
@@ -100,25 +105,30 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to SWR
-        uses: huaweicloud/swr-login@v2.1.0 # pinned to match order-pro
+        uses: huaweicloud/swr-login@v2.1.0
         with:
           access-key-id: ${{ secrets.ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.ACCESS_KEY_SECRET }}
           region: af-south-1
+
       - name: Build and push worker image
-        env:
-          APP_VERSION: ${{ github.sha }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/worker/Dockerfile
+          push: true
+          tags: ${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/wealthtrack-worker:${{ env.IMAGE_TAG }}
+          build-args: APP_VERSION=${{ github.sha }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
+
+      - name: Summarise
         run: |
-          set -euo pipefail
-          export DOCKER_BUILDKIT=0
-          IMAGE_REF="${SWR_REGISTRY}/${SWR_NAMESPACE}/wealthtrack-worker:${IMAGE_TAG}"
-          docker build \
-            --build-arg APP_VERSION="${APP_VERSION}" \
-            -t "${IMAGE_REF}" \
-            -f apps/worker/Dockerfile .
-          docker push "${IMAGE_REF}"
-          { echo "### Build Worker"; echo "- \`${IMAGE_REF}\`"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Build Worker"; echo "- \`${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/wealthtrack-worker:${{ env.IMAGE_TAG }}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
   build-dashboard:
     name: Build & push dashboard image
@@ -132,25 +142,30 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
       - name: Login to SWR
-        uses: huaweicloud/swr-login@v2.1.0 # pinned to match order-pro
+        uses: huaweicloud/swr-login@v2.1.0
         with:
           access-key-id: ${{ secrets.ACCESS_KEY_ID }}
           access-key-secret: ${{ secrets.ACCESS_KEY_SECRET }}
           region: af-south-1
+
       - name: Build and push dashboard image
-        env:
-          VITE_API_BASE_URL: ${{ secrets.STAGING_VITE_API_BASE_URL }}
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/dashboard/Dockerfile
+          push: true
+          tags: ${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/wealthtrack-dashboard:${{ env.IMAGE_TAG }}
+          build-args: VITE_API_BASE_URL=${{ secrets.STAGING_VITE_API_BASE_URL }}
+          cache-from: type=gha,scope=dashboard
+          cache-to: type=gha,mode=max,scope=dashboard
+
+      - name: Summarise
         run: |
-          set -euo pipefail
-          export DOCKER_BUILDKIT=0
-          IMAGE_REF="${SWR_REGISTRY}/${SWR_NAMESPACE}/wealthtrack-dashboard:${IMAGE_TAG}"
-          docker build \
-            --build-arg VITE_API_BASE_URL="${VITE_API_BASE_URL}" \
-            -t "${IMAGE_REF}" \
-            -f apps/dashboard/Dockerfile .
-          docker push "${IMAGE_REF}"
-          { echo "### Build Dashboard"; echo "- \`${IMAGE_REF}\`"; } >> "$GITHUB_STEP_SUMMARY"
+          { echo "### Build Dashboard"; echo "- \`${{ env.SWR_REGISTRY }}/${{ env.SWR_NAMESPACE }}/wealthtrack-dashboard:${{ env.IMAGE_TAG }}\`"; } >> "$GITHUB_STEP_SUMMARY"
 
   deploy:
     name: Deploy to Vesta staging

@@ -1457,6 +1457,33 @@ function App() {
     document.documentElement.setAttribute('data-theme', isDark ? 'dark' : 'light');
   }, [isDark]);
 
+  // On mount: silently re-fetch permissions from the server so any stale
+  // localStorage session (e.g. logged in before a migration ran) self-heals
+  // without requiring a manual logout. If the server rejects the session
+  // (expired / revoked) the user is signed out cleanly.
+  useEffect(() => {
+    if (!session) return;
+    apiMutate<{ user: { id: string; name: string; email: string; roleCode: string; permissions: string[] } }>(
+      'POST', 'auth/refresh', {}
+    ).then((result) => {
+      const updated: Session = {
+        ...session,
+        name: result.user.name,
+        email: result.user.email,
+        roleCode: result.user.roleCode,
+        actorType: mapRoleToActorType(result.user.roleCode),
+        permissions: result.user.permissions,
+      };
+      Object.assign(dashboardRequestHeaders, { 'x-permissions': updated.permissions.join(',') });
+      persistSession(updated);
+      setSession(updated);
+    }).catch(() => {
+      eraseSession();
+      setSession(null);
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 

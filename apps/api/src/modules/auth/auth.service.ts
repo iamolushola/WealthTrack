@@ -75,12 +75,21 @@ export class AuthService {
     }
 
     const role = await this.roleRepository.findById(user.roleId);
-    const rolePermissions = await this.rolePermissionRepository.listByRoleId(user.roleId);
     const allPermissions = await this.permissionRepository.list();
-    const permMap = new Map(allPermissions.map((p) => [p.id, p.code]));
-    const resolvedPermissions = rolePermissions
-      .map((rp) => permMap.get(rp.permissionId))
-      .filter((code): code is string => Boolean(code));
+
+    // super_admin implicitly holds every permission so new permissions added in
+    // future migrations are automatically available without manual role_permissions
+    // entries. All other roles get only their explicitly granted permissions.
+    let resolvedPermissions: string[];
+    if (role?.code === 'super_admin') {
+      resolvedPermissions = allPermissions.map((p) => p.code);
+    } else {
+      const rolePermissions = await this.rolePermissionRepository.listByRoleId(user.roleId);
+      const permMap = new Map(allPermissions.map((p) => [p.id, p.code]));
+      resolvedPermissions = rolePermissions
+        .map((rp) => permMap.get(rp.permissionId))
+        .filter((code): code is string => Boolean(code));
+    }
 
     const sessionId = createId();
     const refreshToken = createId();
@@ -137,7 +146,32 @@ export class AuthService {
   }
 
   async refresh(actor: AuthenticatedActor): Promise<object> {
-    return { tokenType: 'refresh', refreshedAt: nowIso(), actor };
+    const user = await this.usersRepository.findById(actor.actorId);
+    if (!user) throw new UnauthorizedException('User not found');
+
+    const role = await this.roleRepository.findById(user.roleId);
+    const allPermissions = await this.permissionRepository.list();
+
+    let resolvedPermissions: string[];
+    if (role?.code === SUPER_ADMIN_ROLE_CODE) {
+      resolvedPermissions = allPermissions.map((p) => p.code);
+    } else {
+      const rolePermissions = await this.rolePermissionRepository.listByRoleId(user.roleId);
+      const permMap = new Map(allPermissions.map((p) => [p.id, p.code]));
+      resolvedPermissions = rolePermissions
+        .map((rp) => permMap.get(rp.permissionId))
+        .filter((code): code is string => Boolean(code));
+    }
+
+    return {
+      user: {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        roleCode: role?.code ?? user.roleId,
+        permissions: resolvedPermissions,
+      },
+    };
   }
 
   async getCurrentActor(actor: AuthenticatedActor): Promise<AuthenticatedActor> {
