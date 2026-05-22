@@ -1937,9 +1937,7 @@ function App() {
       cancelled = true;
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
-
-  // Load available roles whenever the users page is open (for invite/edit dropdowns)
+  }, [currentView, usersOverview.status]);
   useEffect(() => {
     if (currentView !== 'users' || rolesData.status !== 'idle') return undefined;
     let cancelled = false;
@@ -1949,7 +1947,7 @@ function App() {
       .catch((err: unknown) => { if (!cancelled) setRolesData({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView]);
+  }, [currentView, rolesData.status]);
 
   // Load role-permissions matrix when Roles & Permissions tab opens
   useEffect(() => {
@@ -1961,7 +1959,7 @@ function App() {
       .catch((err: unknown) => { if (!cancelled) setRoleMatrix({ status: 'error', data: null, error: err instanceof Error ? err.message : 'Unknown error' }); });
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentView, usersTab]);
+  }, [currentView, usersTab, roleMatrix.status]);
 
   // Load integrations when Settings → Config tab is open
   useEffect(() => {
