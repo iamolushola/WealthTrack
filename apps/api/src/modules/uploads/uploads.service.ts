@@ -164,9 +164,8 @@ export class UploadsService {
     this.uploadsPolicy.assertCanCreateCsvUpload(actor);
 
     const checksum = createHash('sha256').update(fileBuffer).digest('hex');
-    let fileUrl: string;
 
-    fileUrl = await this.storeUploadedCsv(fileBuffer, originalName);
+    const { fileUrl, isLocal } = await this.storeUploadedCsv(fileBuffer, originalName);
 
     const now = nowIso();
     const batch: UploadBatchRow = {
@@ -197,6 +196,10 @@ export class UploadsService {
         batchId: batch.id,
         requestId: createId(),
         correlationId: createId(),
+        // When the file is stored locally (mock mode or cloud fallback) it only
+        // exists on the API pod's disk.  Pass the raw content in the job so the
+        // worker can process it without cross-pod filesystem access.
+        ...(isLocal ? { fileContent: fileBuffer.toString('base64') } : {}),
       });
       await this.outboxService.queue('csv.uploaded', 'upload_batch', batch.id, {
         batchId: batch.id,
@@ -238,19 +241,21 @@ export class UploadsService {
     return url;
   }
 
-  private async storeUploadedCsv(buffer: Buffer, originalName: string): Promise<string> {
+  private async storeUploadedCsv(buffer: Buffer, originalName: string): Promise<{ fileUrl: string; isLocal: boolean }> {
     if (this.useMockStorage) {
-      return this.writeLocalUpload(buffer, originalName);
+      const fileUrl = await this.writeLocalUpload(buffer, originalName);
+      return { fileUrl, isLocal: true };
     }
 
     try {
       const fileUrl = await this.uploadToCredPal(buffer, originalName);
       this.logger.log(`CSV uploaded to cloud: ${fileUrl}`);
-      return fileUrl;
+      return { fileUrl, isLocal: false };
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown file service error';
       this.logger.warn(`Cloud CSV upload failed; falling back to local file storage. ${message}`);
-      return this.writeLocalUpload(buffer, originalName);
+      const fileUrl = await this.writeLocalUpload(buffer, originalName);
+      return { fileUrl, isLocal: true };
     }
   }
 

@@ -67,7 +67,9 @@ export class CsvProcessingProcessor implements QueueProcessor<ProcessCsvUploadJo
     ]);
 
     try {
-      const content = await this.fileStorageService.readCsv(batch.fileUrl);
+      const content = data.fileContent
+        ? Buffer.from(data.fileContent, 'base64').toString('utf-8')
+        : await this.fileStorageService.readCsv(batch.fileUrl);
       const parsedRows = parseCsv(content);
       const previewRows: UploadPreviewRow[] = [];
       const validationErrors: UploadValidationErrorRow[] = [];
