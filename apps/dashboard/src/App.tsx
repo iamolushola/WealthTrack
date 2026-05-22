@@ -4635,6 +4635,8 @@ function App() {
                     </thead>
                     <tbody>
                       {userItems.map((item) => {
+                        const isPending = item.status === 'inactive' && !item.lastLoginAt;
+                        const displayStatus = isPending ? 'Pending' : item.status;
                         const tone = item.status === 'active' ? 'good' : item.status === 'suspended' ? 'warn' : 'neutral';
                         return (
                           <tr key={item.id}>
@@ -4645,7 +4647,7 @@ function App() {
                             </td>
                             <td><span className="table-secondary-copy">{item.email}</span></td>
                             <td><span className="pill pill-neutral">{item.roleName ?? item.roleId}</span></td>
-                            <td><span className={`pill pill-${tone}`}>{item.status}</span></td>
+                            <td><span className={`pill pill-${tone}`}>{displayStatus}</span></td>
                             <td><span className="table-secondary-copy">{item.lastLoginAt ? formatDateTime(item.lastLoginAt) : '—'}</span></td>
                             <td>
                               {canManageTeam ? (
@@ -4676,6 +4678,25 @@ function App() {
                                   >
                                     Edit <Icon name="edit" />
                                   </button>
+                                  {item.id !== session?.actorId && (
+                                    <button
+                                      className="table-action table-action-danger"
+                                      type="button"
+                                      onClick={() => openDialog({
+                                        title: `Remove ${item.name}`,
+                                        description: `Remove ${item.name} (${item.email}) from the platform? This cannot be undone.`,
+                                        confirmLabel: 'Remove user',
+                                        tone: 'danger',
+                                        onConfirm: async () => {
+                                          await apiMutate('DELETE', 'users', { ids: [item.id] });
+                                          setNotice({ message: `${item.name} has been removed.`, tone: 'info' });
+                                          setUsersOverview({ status: 'idle', data: null, error: null });
+                                        },
+                                      })}
+                                    >
+                                      Delete <Icon name="x" />
+                                    </button>
+                                  )}
                                 </div>
                               ) : '—'}
                             </td>

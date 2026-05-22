@@ -206,7 +206,13 @@ export class AuthService {
     if (!user) throw new BadRequestException('Invalid or expired invitation link');
 
     const now = nowIso();
-    await this.usersRepository.update({ ...user, passwordHash: hashPassword(payload.newPassword), updatedAt: now, updatedBy: user.id });
+    await this.usersRepository.update({
+      ...user,
+      passwordHash: hashPassword(payload.newPassword),
+      status: 'active',   // activate the account — the user has accepted the invite
+      updatedAt: now,
+      updatedBy: user.id,
+    });
     await this.passwordResetTokenRepository.markUsed(tokenRecord.id, now);
     return { message: 'Password set successfully. You can now sign in.' };
   }

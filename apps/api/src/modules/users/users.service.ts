@@ -76,7 +76,7 @@ export class UsersService {
       email: payload.email,
       passwordHash: hashPassword(tempPassword),
       roleId: role.id,
-      status: 'active',
+      status: 'inactive',   // activated when the user sets their password via the invite link
       lastLoginAt: null,
       createdAt: now,
       updatedAt: now,

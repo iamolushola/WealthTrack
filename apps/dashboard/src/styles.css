@@ -4529,6 +4529,16 @@ select:focus-visible {
   white-space: nowrap;
 }
 
+.table-action.table-action-danger {
+  color: var(--tone-warn, #d97706);
+  border-color: color-mix(in srgb, var(--tone-warn, #d97706) 30%, transparent);
+}
+
+.table-action.table-action-danger:hover {
+  background: color-mix(in srgb, var(--tone-warn, #d97706) 10%, transparent);
+  border-color: var(--tone-warn, #d97706);
+}
+
 .table-action svg {
   width: 13px;
   height: 13px;
