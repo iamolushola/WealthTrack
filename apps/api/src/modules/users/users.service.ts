@@ -87,6 +87,10 @@ export class UsersService {
 
     await this.usersRepository.create(user);
 
+    // Resolve the inviter's display name — actorId is a UUID so we look up the record.
+    const actorRecord = await this.usersRepository.findById(actor.actorId);
+    const inviterName = actorRecord?.name ?? 'An administrator';
+
     // Issue a welcome / set-password token and send the onboarding email
     try {
       const { tokenId, rawToken } = await this.authService.issueWelcomeToken(user.id, now);
@@ -96,7 +100,7 @@ export class UsersService {
         tokenId,
         rawToken,
         expiresInHours: this.authService.setPasswordExpiryHours,
-        createdByName: actor.actorId, // will be resolved to name in a future iteration
+        createdByName: inviterName,
       });
       void this.mailerService.sendMail({ to: user.email, subject, html });
     } catch (err: unknown) {
@@ -110,11 +114,15 @@ export class UsersService {
 
   async resendInvite(id: string, actor: AuthenticatedActor): Promise<{ message: string }> {
     this.usersPolicy.assertCanManage(actor, 'users.create');
-    const user = await this.usersRepository.findById(id);
+    const [user, actorRecord] = await Promise.all([
+      this.usersRepository.findById(id),
+      this.usersRepository.findById(actor.actorId),
+    ]);
     if (!user) {
       throw new NotFoundException('User not found');
     }
 
+    const inviterName = actorRecord?.name ?? 'An administrator';
     const now = nowIso();
     const { tokenId, rawToken } = await this.authService.issueWelcomeToken(user.id, now);
     const { subject, html } = this.authService.welcomeTemplate({
@@ -123,7 +131,7 @@ export class UsersService {
       tokenId,
       rawToken,
       expiresInHours: this.authService.setPasswordExpiryHours,
-      createdByName: actor.actorId,
+      createdByName: inviterName,
     });
     await this.mailerService.sendMail({ to: user.email, subject, html });
     return { message: `Invite resent to ${user.email}` };
