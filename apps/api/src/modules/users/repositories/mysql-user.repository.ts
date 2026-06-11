@@ -16,7 +16,7 @@ export class MysqlUserRepository implements UserRepository {
   }
 
   findByEmail(email: string): Promise<UserRow | null> {
-    return this.mysql.selectOne<UserRow>('SELECT * FROM users WHERE email = ? LIMIT 1', [email]);
+    return this.mysql.selectOne<UserRow>('SELECT * FROM users WHERE email = ? AND deleted_at IS NULL LIMIT 1', [email]);
   }
 
   async update(user: UserRow): Promise<void> {
